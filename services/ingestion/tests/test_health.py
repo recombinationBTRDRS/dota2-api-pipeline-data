@@ -1,5 +1,5 @@
 from fastapi.testclient import TestClient
-from ingestion.app.main import app
+from services.ingestion.app.main import app
 
 client = TestClient(app)
 

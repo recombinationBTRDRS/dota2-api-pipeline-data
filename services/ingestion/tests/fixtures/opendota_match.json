@@ -1,0 +1,22 @@
+{
+  "match_id": 7654321098,
+  "duration": 2345,
+  "radiant_win": true,
+  "start_time": 1710000000,
+  "players": [
+    {
+      "account_id": 123456,
+      "hero_id": 83,
+      "player_slot": 0,
+      "kills": 10,
+      "deaths": 2,
+      "assists": 15,
+      "item_0": 50,
+      "item_1": 36,
+      "item_2": 0,
+      "item_3": 0,
+      "item_4": 0,
+      "item_5": 0
+    }
+  ]
+}
