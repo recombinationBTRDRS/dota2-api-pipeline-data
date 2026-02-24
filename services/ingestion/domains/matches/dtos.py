@@ -1,3 +1,4 @@
+# services/ingestion/domains/matches/dtos.py
 from dataclasses import dataclass
 from typing import List
 
@@ -17,7 +18,7 @@ class PlayerMatchStats:
 
 @dataclass
 class Match:
-    match_id: int
+    id: int
     duration: int
     radiant_win: bool
     start_time: int

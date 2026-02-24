@@ -1,3 +1,4 @@
+# services/ingestion/domains/matches/parsers.py
 from .dtos import Match, PlayerMatchStats
 
 
@@ -18,7 +19,7 @@ def parse_match(contract: dict) -> Match:
     ]
 
     return Match(
-        match_id=contract["match_id"],
+        id=contract["match_id"],
         duration=contract["duration"],
         radiant_win=contract["radiant_win"],
         start_time=contract["start_time"],
