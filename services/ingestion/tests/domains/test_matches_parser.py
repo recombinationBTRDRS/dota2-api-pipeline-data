@@ -1,3 +1,4 @@
+#services/ingestion/tests/domains/test_matches_parser.py
 from services.ingestion.domains.matches.parsers import parse_match
 
 
@@ -26,6 +27,6 @@ def test_parse_match_contract():
 
     match = parse_match(contract)
 
-    assert match.match_id == 123
+    assert match.id == 123
     assert len(match.players) == 1
     assert match.players[0].hero_id == 46
