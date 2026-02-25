@@ -22,8 +22,8 @@ def adapt_player(player: Dict[str, Any]) -> Dict[str, Any]:
         "kills": player["kills"],
         "deaths": player["deaths"],
         "assists": player["assists"],
-        "gold_per_min": player["gold_per_min"],
-        "xp_per_min": player["xp_per_min"],
+        "gpm": player["gpm"],
+        "xpm": player["xpm"],
         "is_radiant": player["isRadiant"],
         "win": player["win"] == 1,
     }
