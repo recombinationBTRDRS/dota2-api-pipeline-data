@@ -3,45 +3,93 @@ language: "uk"
 reviews:
   profile: "assertive"
   request_changes_workflow: true
-  
+  auto_review:
+    enabled: true
+    drafts: false
+
   instructions: |
-    Це Python проект — ingestion service для Dota 2 аналітики.
-    
-    Архітектура має чотири шари:
-    - providers/ — HTTP клієнти, адаптери зовнішніх API
-    - domains/ — бізнес-логіка, DTO, парсери (НЕ знає про db/)
-    - app/ — оркестрація пайплайну
-    - db/ — репозиторії, SQLite моделі (НЕ знає про providers/)
-    
-    Перевіряй обов'язково:
-    - domain шар не імпортує нічого з db/ або providers/
-    - db шар не імпортує нічого з providers/
-    - всі ENV змінні йдуть через settings, не hardcoded константи
-    - вхідні дані валідуються через pydantic перед обробкою
-    - функції роблять одну річ, не змішують відповідальності
-    - нові сутності мають відповідні тести
-    
-    Ігноруй:
-    - стилістичні зауваження якщо ruff не скаржиться
-    - довжину рядків якщо це не критично для читабельності
+    Це Python 3.11+ проект — Ingestion Service для збору та збереження
+    Dota 2 матчів з OpenDota API.
+
+    ## Архітектура — чотири ізольованих шари
+
+    providers/
+      opendota/client.py    — HTTP клієнт, rate limit, retries
+      opendota/adapters.py  — raw OpenDota JSON → нормалізований contract dict
+
+    domains/
+      matches/dtos.py       — pydantic моделі Match, PlayerMatchStats
+      matches/parsers.py    — contract dict → типізований Match об'єкт
+
+    app/
+      config.py             — pydantic BaseSettings, всі ENV змінні
+      ingest_match.py       — головний пайплайн
+      persist.py            — конвертує domain моделі → db моделі
+      main.py               — FastAPI, lifespan handler
+
+    db/
+      sqlite.py             — підключення, init схеми
+      models.py             — DB dataclasses (окремо від domain DTO)
+      repositories.py       — MatchRepository, PlayerRepository, MatchPlayerRepository
+
+    ## Залізні правила архітектури
+
+    1. domains/ НІКОЛИ не імпортує з db/ або providers/
+       Приклад порушення:
+       # domains/matches/parsers.py
+       from services.ingestion.db.models import Match  ← ЗАБОРОНЕНО
+
+    2. db/ НІКОЛИ не імпортує з providers/ або domains/
+       Єдиний місток між domain і db — тільки app/persist.py
+
+    3. providers/ НІКОЛИ не імпортує з domains/ або db/
+
+    4. app/ — єдиний шар який знає про всіх
+       Тільки тут можна імпортувати з різних шарів одночасно
+
+    5. Два окремих Match не змішувати:
+       - domains/matches/dtos.py → Match (бізнес-логіка)
+       - db/models.py → Match (DB структура)
+       Якщо в одному файлі потрібні обидва — обов'язковий аліас:
+       from services.ingestion.db.models import Match as DBMatch
+
+    ## Що перевіряти в кожному PR
+
+    CONFIG:
+    - немає hardcoded констант — URL, таймаути, ретраї, шляхи до DB
+    - все йде через settings з app/config.py
+    - приклад порушення: BASE_URL = "https://api.opendota.com/api" в client.py
+
+    VALIDATION:
+    - вхідні дані від OpenDota валідуються через pydantic перед обробкою
+    - parse_match кидає ValidationError на биті дані, не мовчки падає
+    - account_id може бути None (анонімний гравець) — це ок, але має бути явно int | None
+
+    PERSISTENCE:
+    - всі insert/update через upsert — ON CONFLICT DO UPDATE
+    - повторний інжест того самого match_id не дублює дані
+    - persist_match зберігає match + players + match_players як єдина операція
+
+    HTTP CLIENT:
+    - rate limit дотримується між запитами
+    - при 429 — backoff і retry, не одразу падає
+    - при вичерпанні retries — кидає виняток з контекстом (який match_id, скільки спроб)
+
+    TESTS:
+    - кожна нова функція має тест
+    - domain тести не торкаються DB або HTTP (тільки чисті dict → DTO)
+    - для HTTP використовується mock requests.get, не реальний запит
+    - integration тести в tests/integration/ перевіряють повний пайплайн
+
+    DEPRECATED API:
+    - заборонено @app.on_event("startup") — тільки lifespan handler
+    - якщо бачиш on_event — обов'язково флагати
+
+    ## Що ігнорувати
+
+    - стилістичні зауваження якщо ruff check проходить без помилок
+    - довжину рядків якщо це не ламає читабельність
+    - відсутність docstrings на приватних методах
 
 chat:
   auto_reply: true
-```
-
-Комітиш цей файл — і CodeRabbit одразу починає враховувати ці правила.
-
-**Що може піти не так:**
-- YAML синтаксис зламаний — перевір через `yamllint` або будь-який онлайн валідатор
-- Інструкції занадто розмиті — чим конкретніше описуєш правила, тим точніший review
-
----
-
-## Крок 5 — Взаємодія з CodeRabbit в PR
-
-CodeRabbit розуміє коментарі адресовані йому прямо в PR. Це дуже зручно:
-```
-@coderabbitai review        → запустити review знову
-@coderabbitai summary       → оновити summary PR
-@coderabbitai ignore        → ігнорувати цей коментар
-@coderabbitai help          → список команд
