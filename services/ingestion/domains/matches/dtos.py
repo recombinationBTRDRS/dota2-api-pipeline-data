@@ -1,11 +1,10 @@
 # services/ingestion/domains/matches/dtos.py
-from typing import List
 
 from pydantic import BaseModel, Field
 
 
 class PlayerMatchStats(BaseModel):
-    account_id: int | None
+    account_id: int | None = None
     hero_id: int = Field(..., ge=1)
     kills: int = Field(..., ge=0)
     deaths: int = Field(..., ge=0)
@@ -23,7 +22,7 @@ class Match(BaseModel):
     start_time: int = Field(..., ge=0)
     radiant_score: int = Field(..., ge=0)
     dire_score: int = Field(..., ge=0)
-    players: List[PlayerMatchStats]
+    players: list[PlayerMatchStats]
 
     model_config = {
         "populate_by_name": True

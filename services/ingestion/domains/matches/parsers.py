@@ -6,7 +6,8 @@ from services.ingestion.domains.matches.dtos import Match, PlayerMatchStats
 def parse_match(contract: dict) -> Match:
     """
     Перетворює normalized contract dict -> Domain Match DTO.
-    Fail-fast: будь-яка невалідність викликає ValidationError.
+    Fail-fast: відсутні ключі верхнього рівня викликають KeyError;
+    некоректні поля гравців викликають ValidationError (Pydantic).
     """
     players = [PlayerMatchStats(**p) for p in contract["players"]]
 
