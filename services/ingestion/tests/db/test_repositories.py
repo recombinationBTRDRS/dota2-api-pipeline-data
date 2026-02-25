@@ -2,14 +2,14 @@
 import pytest
 
 from services.ingestion.db import sqlite as sqlite_module
-from services.ingestion.db.sqlite import init_db, get_connection
-from services.ingestion.db.unit_of_work import UnitOfWork
+from services.ingestion.db.models import MatchDB, MatchPlayerDB, PlayerDB
 from services.ingestion.db.repositories import (
+    MatchPlayerRepository,
     MatchRepository,
     PlayerRepository,
-    MatchPlayerRepository,
 )
-from services.ingestion.db.models import MatchDB, PlayerDB, MatchPlayerDB
+from services.ingestion.db.sqlite import get_connection, init_db
+from services.ingestion.db.unit_of_work import UnitOfWork
 
 
 @pytest.fixture()

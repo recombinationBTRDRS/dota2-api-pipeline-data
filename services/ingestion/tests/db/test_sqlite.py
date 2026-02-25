@@ -2,7 +2,7 @@
 import pytest
 
 from services.ingestion.db import sqlite as sqlite_module
-from services.ingestion.db.sqlite import init_db, get_connection
+from services.ingestion.db.sqlite import get_connection, init_db
 
 
 @pytest.fixture()

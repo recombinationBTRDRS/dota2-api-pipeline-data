@@ -1,7 +1,7 @@
 #services/ingestion/app/main.py
+import asyncio
 import logging
 from contextlib import asynccontextmanager
-import asyncio
 
 from fastapi import FastAPI
 

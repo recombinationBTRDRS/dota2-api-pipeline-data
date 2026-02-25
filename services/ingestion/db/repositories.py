@@ -1,6 +1,7 @@
 # services/ingestion/db/repositories.py
 import sqlite3
-from services.ingestion.db.models import MatchDB, PlayerDB, MatchPlayerDB
+
+from services.ingestion.db.models import MatchDB, MatchPlayerDB, PlayerDB
 
 
 class MatchRepository:

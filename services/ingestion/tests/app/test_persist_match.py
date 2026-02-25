@@ -1,12 +1,11 @@
 # services/ingestion/tests/app/test_persist_match.py
-from pathlib import Path
 
 import pytest
 
 from services.ingestion.app.persist import persist_match
-from services.ingestion.domains.matches.dtos import Match, PlayerMatchStats
-from services.ingestion.db.sqlite import init_db, get_connection
 from services.ingestion.db import sqlite as sqlite_module
+from services.ingestion.db.sqlite import get_connection, init_db
+from services.ingestion.domains.matches.dtos import Match, PlayerMatchStats
 
 
 @pytest.fixture()

@@ -2,12 +2,11 @@
 import logging
 from typing import Optional
 
-from services.ingestion.providers.opendota.client import MatchProvider
-from services.ingestion.providers.opendota.client import OpenDotaClient
-from services.ingestion.providers.opendota.adapters import adapt_match
-from services.ingestion.domains.matches.parsers import parse_match
 from services.ingestion.app.persist import persist_match
 from services.ingestion.domains.matches.dtos import Match
+from services.ingestion.domains.matches.parsers import parse_match
+from services.ingestion.providers.opendota.adapters import adapt_match
+from services.ingestion.providers.opendota.client import MatchProvider, OpenDotaClient
 
 logger = logging.getLogger(__name__)
 

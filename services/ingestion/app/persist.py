@@ -1,11 +1,11 @@
 # services/ingestion/app/persist.py
-from services.ingestion.db.unit_of_work import UnitOfWork
+from services.ingestion.db.models import MatchDB, MatchPlayerDB, PlayerDB
 from services.ingestion.db.repositories import (
+    MatchPlayerRepository,
     MatchRepository,
     PlayerRepository,
-    MatchPlayerRepository,
 )
-from services.ingestion.db.models import MatchDB, PlayerDB, MatchPlayerDB
+from services.ingestion.db.unit_of_work import UnitOfWork
 from services.ingestion.domains.matches.dtos import Match
 
 
