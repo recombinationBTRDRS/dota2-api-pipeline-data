@@ -1,14 +1,14 @@
 # services/ingestion/db/repositories.py
-from services.ingestion.db.sqlite import get_connection
+import sqlite3
 from services.ingestion.db.models import MatchDB, PlayerDB, MatchPlayerDB
 
 
 class MatchRepository:
-    def upsert(self, match: MatchDB) -> None:
-        conn = get_connection()
-        cur = conn.cursor()
+    def __init__(self, conn: sqlite3.Connection) -> None:
+        self.conn = conn
 
-        cur.execute(
+    def upsert(self, match: MatchDB) -> None:
+        self.conn.execute(
             """
             INSERT INTO matches (id, start_time, duration, radiant_win, patch, region)
             VALUES (?, ?, ?, ?, ?, ?)
@@ -29,16 +29,13 @@ class MatchRepository:
             ),
         )
 
-        conn.commit()
-        conn.close()
-
 
 class PlayerRepository:
-    def upsert(self, player: PlayerDB) -> int:
-        conn = get_connection()
-        cur = conn.cursor()
+    def __init__(self, conn: sqlite3.Connection) -> None:
+        self.conn = conn
 
-        cur.execute(
+    def upsert(self, player: PlayerDB) -> int:
+        self.conn.execute(
             """
             INSERT INTO players (account_id, rank_tier, mmr)
             VALUES (?, ?, ?)
@@ -49,21 +46,20 @@ class PlayerRepository:
             (player.account_id, player.rank_tier, player.mmr),
         )
 
-        conn.commit()
+        row = self.conn.execute(
+            "SELECT id FROM players WHERE account_id = ?",
+            (player.account_id,),
+        ).fetchone()
 
-        cur.execute("SELECT id FROM players WHERE account_id = ?", (player.account_id,))
-        row = cur.fetchone()
-
-        conn.close()
         return int(row["id"])
 
 
 class MatchPlayerRepository:
-    def upsert(self, mp: MatchPlayerDB) -> None:
-        conn = get_connection()
-        cur = conn.cursor()
+    def __init__(self, conn: sqlite3.Connection) -> None:
+        self.conn = conn
 
-        cur.execute(
+    def upsert(self, mp: MatchPlayerDB) -> None:
+        self.conn.execute(
             """
             INSERT INTO match_players
             (match_id, player_id, hero_id, kills, deaths, assists, gpm, xpm, win)
@@ -89,6 +85,3 @@ class MatchPlayerRepository:
                 mp.win,
             ),
         )
-
-        conn.commit()
-        conn.close()

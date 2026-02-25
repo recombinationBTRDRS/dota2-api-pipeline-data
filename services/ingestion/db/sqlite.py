@@ -16,10 +16,10 @@ def get_connection() -> sqlite3.Connection:
 
 def init_db() -> None:
     conn = get_connection()
-    cur = conn.cursor()
-
-    schema_sql = SCHEMA_PATH.read_text(encoding="utf-8")
-    cur.executescript(schema_sql)
-
-    conn.commit()
-    conn.close()
+    try:
+        cur = conn.cursor()
+        schema_sql = SCHEMA_PATH.read_text(encoding="utf-8")
+        cur.executescript(schema_sql)
+        conn.commit()
+    finally:
+        conn.close()
