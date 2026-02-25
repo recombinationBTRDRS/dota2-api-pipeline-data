@@ -1,8 +1,8 @@
 #services/ingestion/providers/opendota/adapters.py
-from typing import Any, Dict
+from typing import Any
 
 
-def adapt_match(raw: Dict[str, Any]) -> Dict[str, Any]:
+def adapt_match(raw: dict[str, Any]) -> dict[str, Any]:
     return {
         "match_id": raw["match_id"],
         "duration": raw["duration"],
@@ -15,7 +15,7 @@ def adapt_match(raw: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def adapt_player(player: Dict[str, Any]) -> Dict[str, Any]:
+def adapt_player(player: dict[str, Any]) -> dict[str, Any]:
     return {
         "account_id": player.get("account_id"),
         "hero_id": player["hero_id"],
