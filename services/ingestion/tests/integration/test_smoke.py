@@ -1,14 +1,16 @@
 # services/ingestion/tests/integration/test_smoke.py
-import tempfile
-from pathlib import Path
+from typing import Any
+
+import pytest
 
 from services.ingestion.app.ingest_match import ingest_match
+from services.ingestion.db import sqlite as sqlite_module
 from services.ingestion.db.sqlite import init_db, get_connection
 from services.ingestion.providers.opendota.client import MatchProvider
 
 
 class FakeProvider(MatchProvider):
-    def get_match(self, match_id: int) -> dict:
+    def get_match(self, match_id: int) -> dict[str, Any]:
         return {
             "match_id": match_id,
             "duration": 100,
@@ -32,28 +34,35 @@ class FakeProvider(MatchProvider):
         }
 
 
-def test_full_ingest_pipeline(monkeypatch):
-    with tempfile.TemporaryDirectory() as tmpdir:
-        db_path = Path(tmpdir) / "smoke.sqlite"
+@pytest.fixture()
+def db(monkeypatch, tmp_path):
+    db_path = tmp_path / "smoke.sqlite"
+    monkeypatch.setattr(sqlite_module, "DB_PATH", db_path)
+    init_db()
+    return db_path
 
-        from services.ingestion.db import sqlite as sqlite_module
-        monkeypatch.setattr(sqlite_module, "DB_PATH", db_path)
 
-        init_db()
+def test_full_ingest_pipeline(db):
+    """
+    Інтеграційний тест повного пайплайну:
+    FakeProvider → adapt → parse → persist → assert в БД
+    """
+    match = ingest_match(42, provider=FakeProvider())
 
-        match = ingest_match(42, provider=FakeProvider())
+    assert match.id == 42
 
-        conn = get_connection()
-        cur = conn.cursor()
+    with get_connection() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM matches").fetchone()[0] == 1
+        assert conn.execute("SELECT COUNT(*) FROM players").fetchone()[0] == 1
+        assert conn.execute("SELECT COUNT(*) FROM match_players").fetchone()[0] == 1
 
-        cur.execute("SELECT COUNT(*) as c FROM matches")
-        assert cur.fetchone()["c"] == 1
 
-        cur.execute("SELECT COUNT(*) as c FROM players")
-        assert cur.fetchone()["c"] == 1
+def test_full_ingest_idempotent(db):
+    """Повторний інжест того самого матчу не дублює дані."""
+    ingest_match(42, provider=FakeProvider())
+    ingest_match(42, provider=FakeProvider())
 
-        cur.execute("SELECT COUNT(*) as c FROM match_players")
-        assert cur.fetchone()["c"] == 1
-
-        assert match.id == 42
-        conn.close()
+    with get_connection() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM matches").fetchone()[0] == 1
+        assert conn.execute("SELECT COUNT(*) FROM players").fetchone()[0] == 1
+        assert conn.execute("SELECT COUNT(*) FROM match_players").fetchone()[0] == 1

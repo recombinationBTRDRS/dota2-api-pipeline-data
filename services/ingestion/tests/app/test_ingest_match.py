@@ -5,7 +5,16 @@ from services.ingestion.app.ingest_match import ingest_match
 
 
 def test_ingest_match_pipeline():
-    with patch("services.ingestion.providers.opendota.client.OpenDotaClient.get_match") as mock_get:
+    """
+    Юніт тест оркестрації пайплайну.
+    Перевіряє що ingest_match правильно викликає всі шари.
+    persist_match мокається — збереження перевіряє test_smoke.py
+    """
+    with patch(
+        "services.ingestion.providers.opendota.client.OpenDotaClient.get_match"
+    ) as mock_get, patch(
+        "services.ingestion.app.ingest_match.persist_match"
+    ) as mock_persist:
         mock_get.return_value = {
             "match_id": 123,
             "duration": 1000,
@@ -19,3 +28,4 @@ def test_ingest_match_pipeline():
         result = ingest_match(123)
 
     assert result.id == 123
+    mock_persist.assert_called_once()
