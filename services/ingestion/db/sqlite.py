@@ -1,52 +1,25 @@
-#services/ingestion/db/sqlite.py
+# services/ingestion/db/sqlite.py
 import sqlite3
 from pathlib import Path
 
-DB_PATH = Path(__file__).parent / "data.sqlite"
+BASE_DIR = Path(__file__).parent
+DB_PATH = BASE_DIR / "data.sqlite"
+SCHEMA_PATH = BASE_DIR / "schema.sql"
 
-def get_connection():
+
+def get_connection() -> sqlite3.Connection:
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys = ON;")
     return conn
 
-def init_db():
+
+def init_db() -> None:
     conn = get_connection()
     cur = conn.cursor()
 
-    cur.execute("""
-    CREATE TABLE IF NOT EXISTS matches (
-        id INTEGER PRIMARY KEY,
-        start_time INTEGER,
-        duration INTEGER,
-        radiant_win BOOLEAN,
-        patch INTEGER,
-        region INTEGER
-    )
-    """)
-
-    cur.execute("""
-    CREATE TABLE IF NOT EXISTS players (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        account_id INTEGER UNIQUE,
-        rank_tier INTEGER,
-        mmr REAL
-    )
-    """)
-
-    cur.execute("""
-    CREATE TABLE IF NOT EXISTS match_players (
-        match_id INTEGER,
-        player_id INTEGER,
-        hero_id INTEGER,
-        kills INTEGER,
-        deaths INTEGER,
-        assists INTEGER,
-        gpm INTEGER,
-        xpm INTEGER,
-        win BOOLEAN,
-        PRIMARY KEY (match_id, player_id)
-    )
-    """)
+    schema_sql = SCHEMA_PATH.read_text(encoding="utf-8")
+    cur.executescript(schema_sql)
 
     conn.commit()
     conn.close()

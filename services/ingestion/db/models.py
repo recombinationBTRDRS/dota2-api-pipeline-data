@@ -1,38 +1,27 @@
-#services/ingestion/db/models.py
+# services/ingestion/db/models.py
 from dataclasses import dataclass
-from typing import List
-
-@dataclass
-class PlayerMatchStats:
-    account_id: int
-    hero_id: int
-    kills: int
-    deaths: int
-    assists: int
-    gpm: int
-    xpm: int
-    is_radiant: bool
-    win: bool
 
 
-@dataclass
-class Match:
+@dataclass(slots=True)
+class MatchDB:
     id: int
+    start_time: int
     duration: int
     radiant_win: bool
-    start_time: int
-    radiant_score: int | None = None
-    dire_score: int | None = None
+    patch: int | None
+    region: int | None
 
-@dataclass
-class Player:
-    account_id: int
+
+@dataclass(slots=True)
+class PlayerDB:
+    id: int | None
+    account_id: int | None
     rank_tier: int | None
     mmr: float | None
 
 
-@dataclass
-class MatchPlayer:
+@dataclass(slots=True)
+class MatchPlayerDB:
     match_id: int
     player_id: int
     hero_id: int

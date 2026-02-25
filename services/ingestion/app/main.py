@@ -1,14 +1,28 @@
 #services/ingestion/app/main.py
-from fastapi import FastAPI
-from services.ingestion.db.sqlite import init_db
+import logging
 from contextlib import asynccontextmanager
 
+from fastapi import FastAPI
+
+from services.ingestion.app.config import settings
+from services.ingestion.db.sqlite import init_db
+
+
+def setup_logging() -> None: 
+    logging.basicConfig(
+        level=settings.LOG_LEVEL,
+        format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
+    )
+    
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # startup
+    setup_logging()
+    logging.getLogger(__name__).info("Starting Ingestion Service")
     init_db()
     yield
-    # shutdown (якщо треба — закриття конекшенів, клієнтів тощо)
+    logging.getLogger(__name__).info("Shutting down Ingestion Service")
+
+
 
 app = FastAPI(title="Ingestion Service", lifespan=lifespan)
 
