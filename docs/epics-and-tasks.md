@@ -182,6 +182,5 @@ Done
 
 Issues naming:
 
-[EPIC-1][TASK-1.2] OpenDota JSON parsing
-
-[EPIC-2][TASK-2.1] OpenDota API client
+`[EPIC-1][TASK-1.2] OpenDota JSON parsing`
+`[EPIC-2][TASK-2.1] OpenDota API client`
