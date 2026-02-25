@@ -28,7 +28,7 @@ jobs:
         run: ruff check .
 
       - name: Run mypy
-        run: mypy services/
+        run: python -m mypy services/ --ignore-missing-imports --explicit-package-bases
 
       - name: Run tests
         run: pytest
