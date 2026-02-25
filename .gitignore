@@ -36,3 +36,5 @@ Thumbs.db
 
 # SQLite
 *.sqlite3
+*.sqlite
+*.db
