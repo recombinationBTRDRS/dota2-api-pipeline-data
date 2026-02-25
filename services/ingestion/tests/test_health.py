@@ -1,12 +1,15 @@
 #services/ingestion/tests/test_health.py
 
-from fastapi.testclient import TestClient
+import pytest
+from httpx import ASGITransport, AsyncClient
+
 from services.ingestion.app.main import app
 
-client = TestClient(app)
 
-
-def test_health():
-    resp = client.get("/health")
-    assert resp.status_code == 200
-    assert resp.json() == {"status": "ok"}
+@pytest.mark.asyncio
+async def test_health():
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        resp = await ac.get("/health")
+        assert resp.status_code == 200
+        assert resp.json() == {"status": "ok"}

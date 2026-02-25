@@ -2,7 +2,9 @@
 import sqlite3
 from pathlib import Path
 
-DB_PATH = Path(__file__).parent / "data.sqlite"
+from services.ingestion.app.config import settings
+
+DB_PATH = Path(settings.DB_PATH)
 
 def get_connection():
     conn = sqlite3.connect(DB_PATH)

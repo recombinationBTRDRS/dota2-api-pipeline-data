@@ -1,5 +1,6 @@
 #services/ingestion/tests/providers/test_opendota_client.py
-from unittest.mock import patch, Mock
+from unittest.mock import Mock, patch
+
 from services.ingestion.providers.opendota.client import OpenDotaClient
 
 

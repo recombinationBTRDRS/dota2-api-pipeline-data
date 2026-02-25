@@ -1,5 +1,10 @@
-from services.ingestion.db.models import Match as DBMatch, Player, MatchPlayer
-from services.ingestion.db.repositories import MatchRepository, PlayerRepository, MatchPlayerRepository
+from services.ingestion.db.models import Match as DBMatch
+from services.ingestion.db.models import MatchPlayer, Player
+from services.ingestion.db.repositories import (
+    MatchPlayerRepository,
+    MatchRepository,
+    PlayerRepository,
+)
 
 
 def persist_match(domain_match):

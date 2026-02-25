@@ -1,6 +1,7 @@
 #services/ingestion/db/repositories.py
+from .models import Match, MatchPlayer, Player
 from .sqlite import get_connection
-from .models import Match, Player, MatchPlayer
+
 
 class MatchRepository:
     def upsert(self, match: Match):

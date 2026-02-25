@@ -1,5 +1,5 @@
 #services/ingestion/providers/opendota/adapters.py
-from typing import Dict, Any, List
+from typing import Any, Dict
 
 
 def adapt_match(raw: Dict[str, Any]) -> Dict[str, Any]:

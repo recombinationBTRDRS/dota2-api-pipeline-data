@@ -1,17 +1,18 @@
 #services/ingestion/providers/opendota/client.py
-import time
 import random
+import time
+from typing import Any, Protocol
+
 import requests
-from typing import Protocol, Any
 
-BASE_URL = "https://api.opendota.com/api"
+from services.ingestion.app.config import settings
 
-# простий rate limit
-REQUESTS_PER_MIN = 60
+BASE_URL = settings.OPENDOTA_BASE_URL
+REQUESTS_PER_MIN = settings.OPENDOTA_RATE_LIMIT
 SLEEP_BETWEEN = 60 / REQUESTS_PER_MIN
 
-MAX_RETRIES = 3
-TIMEOUT = 30
+MAX_RETRIES = settings.OPENDOTA_RETRIES
+TIMEOUT = settings.OPENDOTA_TIMEOUT
 
 
 class MatchProvider(Protocol):

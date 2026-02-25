@@ -1,6 +1,6 @@
 #services/ingestion/db/models.py
 from dataclasses import dataclass
-from typing import List
+
 
 @dataclass
 class PlayerMatchStats:
