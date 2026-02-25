@@ -1,5 +1,5 @@
 # services/ingestion/app/persist.py
-from services.ingestion.db.sqlite import get_connection
+from services.ingestion.db.unit_of_work import UnitOfWork
 from services.ingestion.db.repositories import (
     MatchRepository,
     PlayerRepository,
@@ -11,37 +11,33 @@ from services.ingestion.domains.matches.dtos import Match
 
 def persist_match(match: Match) -> None:
     """
-    Єдина точка перетворення domain → db + атомарне збереження
+    Атомарне збереження матчу.
+    match + players + match_players — одна транзакція.
+    При будь-якому винятку — повний rollback.
     """
-    conn = get_connection()
-    try:
-        conn.execute("BEGIN")
+    with UnitOfWork() as uow:
+        match_repo = MatchRepository(uow.conn)
+        player_repo = PlayerRepository(uow.conn)
+        mp_repo = MatchPlayerRepository(uow.conn)
 
-        match_repo = MatchRepository()
-        player_repo = PlayerRepository()
-        mp_repo = MatchPlayerRepository()
-
-        match_db = MatchDB(
+        match_repo.upsert(MatchDB(
             id=match.id,
             start_time=match.start_time,
             duration=match.duration,
             radiant_win=match.radiant_win,
             patch=None,
             region=None,
-        )
-
-        match_repo.upsert(match_db)
+        ))
 
         for p in match.players:
-            player_db = PlayerDB(
+            player_id = player_repo.upsert(PlayerDB(
                 id=None,
                 account_id=p.account_id,
                 rank_tier=None,
                 mmr=None,
-            )
-            player_id = player_repo.upsert(player_db)
+            ))
 
-            mp_db = MatchPlayerDB(
+            mp_repo.upsert(MatchPlayerDB(
                 match_id=match.id,
                 player_id=player_id,
                 hero_id=p.hero_id,
@@ -51,12 +47,4 @@ def persist_match(match: Match) -> None:
                 gpm=p.gpm,
                 xpm=p.xpm,
                 win=p.win,
-            )
-            mp_repo.upsert(mp_db)
-
-        conn.commit()
-    except Exception:
-        conn.rollback()
-        raise
-    finally:
-        conn.close()
+            ))

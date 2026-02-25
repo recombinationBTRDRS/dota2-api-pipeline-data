@@ -1,6 +1,7 @@
 #services/ingestion/app/main.py
 import logging
 from contextlib import asynccontextmanager
+import asyncio
 
 from fastapi import FastAPI
 
@@ -18,7 +19,7 @@ def setup_logging() -> None:
 async def lifespan(app: FastAPI):
     setup_logging()
     logging.getLogger(__name__).info("Starting Ingestion Service")
-    init_db()
+    await asyncio.get_event_loop().run_in_executor(None, init_db)
     yield
     logging.getLogger(__name__).info("Shutting down Ingestion Service")
 

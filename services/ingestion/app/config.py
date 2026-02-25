@@ -1,4 +1,4 @@
-#services/ingestion/app/cinfig.py
+#services/ingestion/app/config.py
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 

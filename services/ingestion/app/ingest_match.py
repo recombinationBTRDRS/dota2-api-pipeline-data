@@ -14,10 +14,10 @@ logger = logging.getLogger(__name__)
 
 def ingest_match(match_id: int, provider: Optional[MatchProvider] = None) -> Match:
     logger.info("Start ingest match_id=%s", match_id)
-
-    client = provider or OpenDotaClient()
-
+    
     try:
+        client = provider if provider is not None else OpenDotaClient()
+
         raw = client.get_match(match_id)
         contract = adapt_match(raw)
         domain_match = parse_match(contract)
