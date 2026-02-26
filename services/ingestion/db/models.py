@@ -1,5 +1,6 @@
 # services/ingestion/db/models.py
 from dataclasses import dataclass
+from typing import Literal
 
 
 @dataclass(slots=True)
@@ -29,7 +30,6 @@ class MatchPlayerDB:
     """DB-представлення участі гравця у матчі.
 
     player_slot — унікальний слот у матчі, частина PK (match_id, player_slot).
-    Якщо не передано явно — persist.py підставить enumerate-індекс.
     player_id — FK до players.id.
     """
 
@@ -47,14 +47,14 @@ class MatchPlayerDB:
 
 @dataclass(slots=True)
 class IngestionLogDB:
-    """DB-представлення запису в журналі інжесту (Task 2.3).
+    """DB-представлення запису в журналі інжесту.
 
-    status: 'ok' або 'failed'.
+    status: 'ok' — успішно збережено, 'failed' — помилка при інжесті.
     error: текст помилки (max 500 символів), None при status='ok'.
     ingested_at: unix timestamp.
     """
 
     match_id: int
-    status: str          # 'ok' | 'failed'
-    ingested_at: int     # unix timestamp
-    error: str | None    # None при status='ok'
+    status: Literal["ok", "failed"]
+    ingested_at: int
+    error: str | None

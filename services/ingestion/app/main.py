@@ -22,15 +22,19 @@ def setup_logging() -> None:
 
 
 def _check_db() -> bool:
-    """Перевіряє доступність БД через SELECT 1. Повертає True якщо OK."""
+    """Перевіряє доступність БД через SELECT 1.
+
+    Гарантує закриття з'єднання через finally незалежно від результату.
+    """
+    conn = get_connection()
     try:
-        conn = get_connection()
         conn.execute("SELECT 1")
-        conn.close()
         return True
     except Exception:
         logger.exception("DB health check failed")
         return False
+    finally:
+        conn.close()
 
 
 @asynccontextmanager
@@ -52,31 +56,17 @@ def health() -> JSONResponse:
 
     Перевіряє доступність БД через SELECT 1.
     Повертає 200 якщо все OK, 503 якщо БД недоступна.
-
-    Returns:
-        JSON з полями status і db_ok.
     """
     db_ok = _check_db()
-    status_code = 200 if db_ok else 503
     return JSONResponse(
-        status_code=status_code,
-        content={
-            "status": "ok" if db_ok else "degraded",
-            "db_ok": db_ok,
-        },
+        status_code=200 if db_ok else 503,
+        content={"status": "ok" if db_ok else "degraded", "db_ok": db_ok},
     )
 
 
 @app.get("/stats")
 def stats() -> JSONResponse:
-    """Статистика останнього discovery циклу.
-
-    Дані оновлюються runner-ом після кожного run_cycle().
-    Якщо runner ще не запускався — повертає null поля.
-
-    Returns:
-        JSON з last_cycle_at (unix timestamp) і last_cycle_stats.
-    """
+    """Статистика останнього discovery циклу."""
     return JSONResponse(
         content={
             "last_cycle_at": app_state.last_cycle_at,

@@ -1,12 +1,4 @@
 # services/ingestion/app/runner.py
-"""Match Discovery Runner (Task 2.2).
-
-Основний цикл: discover → filter known → ingest each → log result.
-
-Запуск:
-    python -m services.ingestion.app
-    python -m services.ingestion.app --interval 60
-"""
 import logging
 import signal
 import time
@@ -26,6 +18,8 @@ from services.ingestion.providers.opendota.explorer_client import (
 
 logger = logging.getLogger(__name__)
 
+_MIN_INTERVAL_SEC = 10  # мінімально допустимий інтервал між циклами
+
 
 @dataclass
 class CycleStats:
@@ -39,16 +33,7 @@ class CycleStats:
 
 
 class Runner:
-    """Discovery + Ingest runner з deduplication і graceful shutdown.
-
-    Підтримує підміну провайдерів через конструктор — для тестів
-    передай FakeDiscoveryProvider і FakeMatchProvider.
-
-    Args:
-        discovery_provider: провайдер для пошуку match_id.
-        match_provider: провайдер для завантаження матчів.
-        interval_sec: пауза між циклами в секундах.
-    """
+    """Discovery + Ingest runner з deduplication і graceful shutdown."""
 
     def __init__(
         self,
@@ -58,7 +43,17 @@ class Runner:
     ) -> None:
         self._discovery = discovery_provider or OpenDotaExplorerClient()
         self._match_provider = match_provider
-        self._interval = interval_sec if interval_sec is not None else settings.DISCOVERY_INTERVAL_SEC
+
+        raw_interval = interval_sec if interval_sec is not None else settings.DISCOVERY_INTERVAL_SEC
+        if raw_interval <= 0:
+            logger.warning(
+                "interval_sec=%s is invalid, falling back to minimum %s",
+                raw_interval,
+                _MIN_INTERVAL_SEC,
+            )
+            raw_interval = _MIN_INTERVAL_SEC
+        self._interval = raw_interval
+
         self._running = False
 
     def _build_filter(self) -> DiscoveryFilter:
@@ -72,12 +67,10 @@ class Runner:
         )
 
     def _is_known(self, match_id: int) -> bool:
-        """Перевіряє чи матч вже успішно збережено."""
         with UnitOfWork() as uow:
             return IngestionLogRepository(uow.conn).is_known(match_id)
 
     def _mark_ok(self, match_id: int) -> None:
-        """Записує успішний інжест в журнал."""
         with UnitOfWork() as uow:
             IngestionLogRepository(uow.conn).mark_ok(
                 match_id=match_id,
@@ -85,7 +78,6 @@ class Runner:
             )
 
     def _mark_failed(self, match_id: int, error: str) -> None:
-        """Записує невдалий інжест в журнал."""
         with UnitOfWork() as uow:
             IngestionLogRepository(uow.conn).mark_failed(
                 match_id=match_id,
@@ -94,15 +86,7 @@ class Runner:
             )
 
     def run_cycle(self) -> CycleStats:
-        """Виконує один цикл discovery + ingest.
-
-        Помилка на одному match_id не зупиняє цикл — логується і записується
-        в ingestion_log зі статусом 'failed'.
-        Після завершення оновлює app_state для /stats endpoint.
-
-        Returns:
-            CycleStats зі статистикою циклу.
-        """
+        """Виконує один цикл discovery + ingest."""
         stats = CycleStats()
 
         discovered = self._discovery.discover(self._build_filter())
@@ -125,36 +109,23 @@ class Runner:
                 self._mark_failed(match_id, error_msg)
                 stats.failed += 1
                 stats.errors.append((match_id, error_msg))
-                logger.error(
-                    "Ingest failed match_id=%s error=%s",
-                    match_id,
-                    error_msg,
-                )
+                logger.error("Ingest failed match_id=%s error=%s", match_id, error_msg)
 
         logger.info(
             "Cycle done: discovered=%s skipped=%s ingested=%s failed=%s",
-            stats.discovered,
-            stats.skipped,
-            stats.ingested,
-            stats.failed,
+            stats.discovered, stats.skipped, stats.ingested, stats.failed,
         )
 
-        # Оновлюємо глобальний стан для /stats endpoint
-        now = int(time.time())
-        app_state.last_cycle_at = now
+        app_state.last_cycle_at = int(time.time())
         app_state.last_cycle_stats = {
             **asdict(stats),
-            "errors": stats.errors,  # list[tuple] — asdict конвертує у list[list]
+            "errors": stats.errors,
         }
 
         return stats
 
     def start(self) -> None:
-        """Запускає нескінченний цикл з паузою між ітераціями.
-
-        Graceful shutdown на SIGINT/SIGTERM — поточний цикл завершується,
-        наступний не починається.
-        """
+        """Запускає нескінченний цикл з паузою між ітераціями."""
         self._running = True
         self._setup_signal_handlers()
         logger.info("Runner started, interval=%ss", self._interval)
@@ -177,7 +148,6 @@ class Runner:
         self._running = False
 
     def _setup_signal_handlers(self) -> None:
-        """Реєструє SIGINT/SIGTERM для graceful shutdown."""
         signal.signal(signal.SIGINT, self._handle_signal)
         signal.signal(signal.SIGTERM, self._handle_signal)
 
@@ -186,7 +156,6 @@ class Runner:
         self.stop()
 
     def _interruptible_sleep(self, seconds: int) -> None:
-        """Sleep що переривається при stop() через короткі інтервали."""
         deadline = time.time() + seconds
         while self._running and time.time() < deadline:
             time.sleep(min(1.0, deadline - time.time()))

@@ -10,48 +10,34 @@ from services.ingestion.db.unit_of_work import UnitOfWork
 
 @pytest.fixture()
 def db(monkeypatch, tmp_path):
-    """Тимчасова SQLite БД на час одного тесту."""
     db_path = tmp_path / "test.sqlite"
     monkeypatch.setattr(sqlite_module, "DB_PATH", db_path)
     init_db()
     return db_path
 
 
-# ── is_known ────────────────────────────────────────────────────────────────
-
-
 def test_is_known_returns_false_for_unknown_match(db) -> None:
-    """Матч якого немає в журналі — is_known повертає False."""
     with UnitOfWork() as uow:
-        repo = IngestionLogRepository(uow.conn)
-        assert repo.is_known(match_id=999) is False
+        assert IngestionLogRepository(uow.conn).is_known(match_id=999) is False
 
 
 def test_is_known_returns_true_after_mark_ok(db) -> None:
-    """Після mark_ok — is_known повертає True."""
     with UnitOfWork() as uow:
-        repo = IngestionLogRepository(uow.conn)
-        repo.mark_ok(match_id=1, ingested_at=1000)
+        IngestionLogRepository(uow.conn).mark_ok(match_id=1, ingested_at=1000)
 
     with UnitOfWork() as uow:
         assert IngestionLogRepository(uow.conn).is_known(match_id=1) is True
 
 
 def test_is_known_returns_false_for_failed_match(db) -> None:
-    """Failed матч — is_known повертає False (має бути оброблений повторно)."""
     with UnitOfWork() as uow:
-        repo = IngestionLogRepository(uow.conn)
-        repo.mark_failed(match_id=2, ingested_at=1000, error="timeout")
+        IngestionLogRepository(uow.conn).mark_failed(match_id=2, ingested_at=1000, error="timeout")
 
     with UnitOfWork() as uow:
         assert IngestionLogRepository(uow.conn).is_known(match_id=2) is False
 
 
-# ── mark_ok ─────────────────────────────────────────────────────────────────
-
-
 def test_mark_ok_saves_record(db) -> None:
-    """mark_ok зберігає запис зі статусом 'ok' і без error."""
     with UnitOfWork() as uow:
         IngestionLogRepository(uow.conn).mark_ok(match_id=10, ingested_at=5000)
 
@@ -65,10 +51,8 @@ def test_mark_ok_saves_record(db) -> None:
 
 
 def test_mark_ok_overwrites_failed(db) -> None:
-    """mark_ok після mark_failed — статус змінюється на 'ok', error очищується."""
     with UnitOfWork() as uow:
-        repo = IngestionLogRepository(uow.conn)
-        repo.mark_failed(match_id=20, ingested_at=1000, error="network error")
+        IngestionLogRepository(uow.conn).mark_failed(match_id=20, ingested_at=1000, error="err")
 
     with UnitOfWork() as uow:
         IngestionLogRepository(uow.conn).mark_ok(match_id=20, ingested_at=2000)
@@ -82,24 +66,24 @@ def test_mark_ok_overwrites_failed(db) -> None:
 
 
 def test_mark_ok_idempotent(db) -> None:
-    """Подвійний mark_ok — не дублює запис."""
     with UnitOfWork() as uow:
         repo = IngestionLogRepository(uow.conn)
         repo.mark_ok(match_id=30, ingested_at=1000)
         repo.mark_ok(match_id=30, ingested_at=2000)
 
-    with get_connection() as conn:
+    # get_connection() з явним close() через finally
+    conn = get_connection()
+    try:
         count = conn.execute(
             "SELECT COUNT(*) FROM ingestion_log WHERE match_id = 30"
         ).fetchone()[0]
+    finally:
+        conn.close()
+
     assert count == 1
 
 
-# ── mark_failed ──────────────────────────────────────────────────────────────
-
-
 def test_mark_failed_saves_record(db) -> None:
-    """mark_failed зберігає запис зі статусом 'failed' та текстом помилки."""
     with UnitOfWork() as uow:
         IngestionLogRepository(uow.conn).mark_failed(
             match_id=40, ingested_at=3000, error="connection refused"
@@ -114,12 +98,9 @@ def test_mark_failed_saves_record(db) -> None:
 
 
 def test_mark_failed_truncates_long_error(db) -> None:
-    """Довгий текст помилки truncate до 500 символів."""
-    long_error = "x" * 1000
-
     with UnitOfWork() as uow:
         IngestionLogRepository(uow.conn).mark_failed(
-            match_id=50, ingested_at=4000, error=long_error
+            match_id=50, ingested_at=4000, error="x" * 1000
         )
 
     with UnitOfWork() as uow:
@@ -130,29 +111,20 @@ def test_mark_failed_truncates_long_error(db) -> None:
 
 
 def test_mark_failed_overwrites_previous_failure(db) -> None:
-    """Повторний mark_failed оновлює error і timestamp."""
     with UnitOfWork() as uow:
-        repo = IngestionLogRepository(uow.conn)
-        repo.mark_failed(match_id=60, ingested_at=1000, error="first error")
+        IngestionLogRepository(uow.conn).mark_failed(match_id=60, ingested_at=1000, error="first")
 
     with UnitOfWork() as uow:
-        IngestionLogRepository(uow.conn).mark_failed(
-            match_id=60, ingested_at=2000, error="second error"
-        )
+        IngestionLogRepository(uow.conn).mark_failed(match_id=60, ingested_at=2000, error="second")
 
     with UnitOfWork() as uow:
         entry = IngestionLogRepository(uow.conn).get(match_id=60)
 
     assert entry is not None
-    assert entry.error == "second error"
+    assert entry.error == "second"
     assert entry.ingested_at == 2000
 
 
-# ── get ──────────────────────────────────────────────────────────────────────
-
-
 def test_get_returns_none_for_unknown(db) -> None:
-    """get() для невідомого match_id повертає None."""
     with UnitOfWork() as uow:
-        result = IngestionLogRepository(uow.conn).get(match_id=9999)
-    assert result is None
+        assert IngestionLogRepository(uow.conn).get(match_id=9999) is None

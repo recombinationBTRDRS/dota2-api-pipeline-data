@@ -24,37 +24,42 @@ class DiscoveryProvider(Protocol):
 class OpenDotaExplorerClient:
     """Клієнт до OpenDota Explorer API (/explorer?sql=...).
 
-    Explorer приймає обмежений SQL проти public_matches і повертає JSON
-    з полем `rows` — список dict з match_id та іншими колонками.
-
-    Використовує ту ж retry/backoff стратегію що й OpenDotaClient:
-    - rate limiting між запитами
-    - exponential backoff при 429 та 5xx
-    - fail-fast при non-retryable 4xx
+    Приймає готовий SQL рядок від caller-а (runner/app шар) —
+    не будує SQL сам, не залежить від DiscoveryFilter або query_builder.
+    Повертає список match_id як list[int].
     """
 
     def __init__(self) -> None:
         self._last_request_ts = 0.0
 
     def _rate_limit(self) -> None:
-        """Витримує мінімальний інтервал між запитами."""
-        sleep_between = 60.0 / settings.OPENDOTA_RATE_LIMIT
+        """Витримує мінімальний інтервал між запитами.
+
+        Якщо OPENDOTA_RATE_LIMIT <= 0 — пропускає sleep (необмежено).
+        """
+        rate = settings.OPENDOTA_RATE_LIMIT
+        if rate <= 0:
+            logger.warning("OPENDOTA_RATE_LIMIT=%s is invalid, skipping rate limit", rate)
+            self._last_request_ts = time.time()
+            return
+
+        sleep_between = 60.0 / rate
         delta = time.time() - self._last_request_ts
         if delta < sleep_between:
             time.sleep(sleep_between - delta)
         self._last_request_ts = time.time()
 
-    def _get(self, params: dict[str, Any]) -> dict[str, Any]:
-        """Виконує GET /explorer з retry-стратегією.
+    def _get(self, sql: str) -> list[dict[str, Any]]:
+        """Виконує GET /explorer?sql=... з retry-стратегією.
 
         Args:
-            params: query params для запиту (включно з sql=...).
+            sql: готовий SQL рядок для OpenDota Explorer.
 
         Returns:
-            Розпарсений JSON як dict.
+            Список рядків з поля 'rows' відповіді.
 
         Raises:
-            RuntimeError: при 4xx або вичерпанні спроб.
+            RuntimeError: при 4xx або вичерпанні спроб (з HTTP контекстом).
         """
         url = f"{settings.OPENDOTA_BASE_URL}/explorer"
         last_exc: Exception | None = None
@@ -62,13 +67,13 @@ class OpenDotaExplorerClient:
         for attempt in range(1, settings.OPENDOTA_RETRIES + 1):
             self._rate_limit()
             try:
-                resp = requests.get(url, params=params, timeout=settings.OPENDOTA_TIMEOUT)
+                resp = requests.get(url, params={"sql": sql}, timeout=settings.OPENDOTA_TIMEOUT)
             except requests.RequestException as e:
                 last_exc = e
                 if attempt == settings.OPENDOTA_RETRIES:
                     raise RuntimeError(
                         f"Explorer request failed after {settings.OPENDOTA_RETRIES} attempts. "
-                        f"Last error: {e}"
+                        f"Last error: {last_exc}"
                     ) from e
                 sleep = (2 ** attempt) + random.random()
                 logger.warning(
@@ -80,6 +85,9 @@ class OpenDotaExplorerClient:
 
             if resp.status_code == 429 or resp.status_code >= 500:
                 sleep = (2 ** attempt) + random.random()
+                last_exc = RuntimeError(
+                    f"HTTP {resp.status_code}: {resp.text[:200]}"
+                )
                 logger.warning(
                     "Explorer %s, retry %s/%s, sleep %.2fs",
                     resp.status_code, attempt, settings.OPENDOTA_RETRIES, sleep,
@@ -89,12 +97,17 @@ class OpenDotaExplorerClient:
 
             if 400 <= resp.status_code < 500:
                 raise RuntimeError(
-                    f"Explorer client error {resp.status_code}. "
-                    f"Body: {resp.text[:200]}"
+                    f"Explorer client error {resp.status_code}. Body: {resp.text[:200]}"
                 )
 
             resp.raise_for_status()
-            return resp.json()  # type: ignore[no-any-return]
+            data = resp.json()
+            rows = data.get("rows")
+            if rows is None:
+                raise ValueError(
+                    f"Explorer response missing 'rows'. Got keys: {list(data.keys())}"
+                )
+            return rows  # type: ignore[no-any-return]
 
         raise RuntimeError(
             f"Explorer: all {settings.OPENDOTA_RETRIES} attempts exhausted. "
@@ -104,15 +117,14 @@ class OpenDotaExplorerClient:
     def discover(self, f: DiscoveryFilter) -> list[DiscoveredMatch]:
         """Виконує discovery запит і повертає список матчів.
 
+        SQL будується тут через build_explorer_sql — єдина точка де
+        provider знає про domain filter, алеізолює цю залежність в одному методі.
+
         Args:
             f: фільтри для пошуку матчів.
 
         Returns:
             Список DiscoveredMatch з match_id.
-
-        Raises:
-            RuntimeError: якщо API повернув помилку або retries вичерпані.
-            ValueError: якщо відповідь не містить поля 'rows'.
         """
         sql = build_explorer_sql(f)
         logger.info(
@@ -120,14 +132,7 @@ class OpenDotaExplorerClient:
             f.lobby_type, f.min_mmr, f.limit, f.patch, f.region,
         )
 
-        data = self._get({"sql": sql})
-
-        rows = data.get("rows")
-        if rows is None:
-            raise ValueError(
-                f"Explorer response missing 'rows' field. Got keys: {list(data.keys())}"
-            )
-
+        rows = self._get(sql)
         matches = [DiscoveredMatch(match_id=row["match_id"]) for row in rows]
         logger.info("Discovery found %d matches", len(matches))
         return matches

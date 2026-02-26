@@ -11,8 +11,7 @@ def test_health():
     with TestClient(app) as client:
         with patch("services.ingestion.app.main._check_db", return_value=True):
             resp = client.get("/health")
-
-    assert resp.status_code == 200
-    data = resp.json()
-    assert data["status"] == "ok"
-    assert data["db_ok"] is True
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["status"] == "ok"
+            assert data["db_ok"] is True
