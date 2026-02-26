@@ -1,5 +1,6 @@
 # services/ingestion/tests/app/test_main.py
 """Тести для FastAPI endpoints: /health і /stats."""
+from collections.abc import Generator
 from unittest.mock import patch
 
 import pytest
@@ -17,10 +18,11 @@ def client() -> TestClient:
 
 
 @pytest.fixture(autouse=True)
-def reset_state() -> None:
+def reset_state() -> Generator[None, None, None]:
     """Скидає app_state перед кожним тестом."""
     app_state.last_cycle_at = None
     app_state.last_cycle_stats = None
+    yield
 
 
 # ── /health ──────────────────────────────────────────────────────────────────
