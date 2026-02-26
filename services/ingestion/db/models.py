@@ -45,15 +45,28 @@ class IngestionLogDB:
 
 @dataclass(slots=True)
 class HeroDB:
-    """DB-представлення героя Dota 2 (Task 3.1).
+    """DB-представлення героя Dota 2 (Task 3.1)."""
 
-    id = OpenDota hero id.
-    primary_attr: 'str' | 'agi' | 'int' | 'all'.
-    attack_type: 'Melee' | 'Ranged'.
+    id: int
+    name: str
+    localized_name: str
+    primary_attr: Literal["str", "agi", "int", "all"]
+    attack_type: Literal["Melee", "Ranged"]
+
+
+@dataclass(slots=True)
+class ItemDB:
+    """DB-представлення предмету Dota 2 (Task 3.2).
+
+    id = OpenDota item id.
+    cost: ціна в золоті (0 для рецептів і базових предметів).
+    secret_shop / side_shop / recipe — булеві прапори.
     """
 
     id: int
-    name: str                                        # 'npc_dota_hero_antimage'
-    localized_name: str                              # 'Anti-Mage'
-    primary_attr: Literal["str", "agi", "int", "all"]
-    attack_type: Literal["Melee", "Ranged"]
+    name: str           # internal key: 'blink'
+    localized_name: str  # display name: 'Blink Dagger'
+    cost: int
+    secret_shop: bool
+    side_shop: bool
+    recipe: bool

@@ -47,13 +47,24 @@ CREATE TABLE IF NOT EXISTS ingestion_log (
 );
 
 -- Герої Dota 2 (Task 3.1).
--- id = OpenDota hero id (не AUTOINCREMENT — використовуємо id з API).
--- primary_attr: 'str' | 'agi' | 'int' | 'all' (universal heroes).
--- attack_type: 'Melee' | 'Ranged'.
 CREATE TABLE IF NOT EXISTS heroes (
     id              INTEGER PRIMARY KEY,
-    name            TEXT    NOT NULL UNIQUE,  -- internal name: 'npc_dota_hero_antimage'
-    localized_name  TEXT    NOT NULL,          -- display name: 'Anti-Mage'
+    name            TEXT    NOT NULL UNIQUE,
+    localized_name  TEXT    NOT NULL,
     primary_attr    TEXT    NOT NULL CHECK(primary_attr IN ('str', 'agi', 'int', 'all')),
     attack_type     TEXT    NOT NULL CHECK(attack_type IN ('Melee', 'Ranged'))
+);
+
+-- Предмети Dota 2 (Task 3.2).
+-- id = OpenDota item id (не AUTOINCREMENT).
+-- cost: ціна в золоті (0 для рецептів і базових предметів).
+-- secret_shop, side_shop, recipe — булеві прапори.
+CREATE TABLE IF NOT EXISTS items (
+    id          INTEGER PRIMARY KEY,
+    name        TEXT    NOT NULL UNIQUE,  -- internal key: 'blink'
+    localized_name TEXT NOT NULL,         -- display name: 'Blink Dagger'
+    cost        INTEGER NOT NULL DEFAULT 0,
+    secret_shop INTEGER NOT NULL DEFAULT 0 CHECK(secret_shop IN (0, 1)),
+    side_shop   INTEGER NOT NULL DEFAULT 0 CHECK(side_shop IN (0, 1)),
+    recipe      INTEGER NOT NULL DEFAULT 0 CHECK(recipe IN (0, 1))
 );

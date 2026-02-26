@@ -1,7 +1,7 @@
 # services/ingestion/db/repositories.py
 import sqlite3
 
-from services.ingestion.db.models import HeroDB, IngestionLogDB, MatchPlayerDB, PlayerDB
+from services.ingestion.db.models import HeroDB, IngestionLogDB, ItemDB, MatchPlayerDB, PlayerDB
 from services.ingestion.db.models import MatchDB as DBMatch
 
 _MAX_ERROR_LEN = 500
@@ -137,17 +137,10 @@ class IngestionLogRepository:
 
 
 class HeroRepository:
-    """Репозиторій для таблиці heroes (Task 3.1).
-
-    Sync-операції виконуються батч-upsert для ефективності.
-    Read-операції використовуються enrich шаром (Task 3.4).
-    """
-
     def __init__(self, conn: sqlite3.Connection) -> None:
         self.conn = conn
 
     def upsert(self, hero: HeroDB) -> None:
-        """Ідемпотентне збереження героя (INSERT або UPDATE при конфлікті id)."""
         self.conn.execute(
             """
             INSERT INTO heroes (id, name, localized_name, primary_attr, attack_type)
@@ -162,10 +155,6 @@ class HeroRepository:
         )
 
     def upsert_batch(self, heroes: list[HeroDB]) -> None:
-        """Ідемпотентне збереження списку героїв в одній транзакції.
-
-        Ефективніше ніж виклик upsert() в циклі — один executemany.
-        """
         self.conn.executemany(
             """
             INSERT INTO heroes (id, name, localized_name, primary_attr, attack_type)
@@ -176,14 +165,10 @@ class HeroRepository:
                 primary_attr   = excluded.primary_attr,
                 attack_type    = excluded.attack_type
             """,
-            [
-                (h.id, h.name, h.localized_name, h.primary_attr, h.attack_type)
-                for h in heroes
-            ],
+            [(h.id, h.name, h.localized_name, h.primary_attr, h.attack_type) for h in heroes],
         )
 
     def get(self, hero_id: int) -> HeroDB | None:
-        """Повертає HeroDB за id або None якщо герой не знайдений."""
         row = self.conn.execute(
             "SELECT id, name, localized_name, primary_attr, attack_type FROM heroes WHERE id = ?",
             (hero_id,),
@@ -199,17 +184,73 @@ class HeroRepository:
         )
 
     def get_all(self) -> list[HeroDB]:
-        """Повертає всіх героїв з таблиці."""
         rows = self.conn.execute(
             "SELECT id, name, localized_name, primary_attr, attack_type FROM heroes ORDER BY id"
         ).fetchall()
         return [
-            HeroDB(
-                id=r["id"],
-                name=r["name"],
-                localized_name=r["localized_name"],
-                primary_attr=r["primary_attr"],
-                attack_type=r["attack_type"],
+            HeroDB(id=r["id"], name=r["name"], localized_name=r["localized_name"],
+                   primary_attr=r["primary_attr"], attack_type=r["attack_type"])
+            for r in rows
+        ]
+
+
+class ItemRepository:
+    """Репозиторій для таблиці items (Task 3.2)."""
+
+    def __init__(self, conn: sqlite3.Connection) -> None:
+        self.conn = conn
+
+    def upsert_batch(self, items: list[ItemDB]) -> None:
+        """Ідемпотентне збереження списку предметів."""
+        self.conn.executemany(
+            """
+            INSERT INTO items (id, name, localized_name, cost, secret_shop, side_shop, recipe)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                name           = excluded.name,
+                localized_name = excluded.localized_name,
+                cost           = excluded.cost,
+                secret_shop    = excluded.secret_shop,
+                side_shop      = excluded.side_shop,
+                recipe         = excluded.recipe
+            """,
+            [
+                (i.id, i.name, i.localized_name, i.cost,
+                 int(i.secret_shop), int(i.side_shop), int(i.recipe))
+                for i in items
+            ],
+        )
+
+    def get(self, item_id: int) -> ItemDB | None:
+        """Повертає ItemDB за id або None."""
+        row = self.conn.execute(
+            "SELECT id, name, localized_name, cost, secret_shop, side_shop, recipe "
+            "FROM items WHERE id = ?",
+            (item_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        return ItemDB(
+            id=row["id"],
+            name=row["name"],
+            localized_name=row["localized_name"],
+            cost=row["cost"],
+            secret_shop=bool(row["secret_shop"]),
+            side_shop=bool(row["side_shop"]),
+            recipe=bool(row["recipe"]),
+        )
+
+    def get_all(self) -> list[ItemDB]:
+        """Повертає всі предмети з таблиці."""
+        rows = self.conn.execute(
+            "SELECT id, name, localized_name, cost, secret_shop, side_shop, recipe "
+            "FROM items ORDER BY id"
+        ).fetchall()
+        return [
+            ItemDB(
+                id=r["id"], name=r["name"], localized_name=r["localized_name"],
+                cost=r["cost"], secret_shop=bool(r["secret_shop"]),
+                side_shop=bool(r["side_shop"]), recipe=bool(r["recipe"]),
             )
             for r in rows
         ]
