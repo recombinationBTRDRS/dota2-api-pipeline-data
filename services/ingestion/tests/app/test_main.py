@@ -1,6 +1,6 @@
 # services/ingestion/tests/app/test_main.py
 """Тести для FastAPI endpoints: /health і /stats."""
-from collections.abc import Generator
+from collections.abc import Iterator
 from unittest.mock import patch
 
 import pytest
@@ -11,14 +11,14 @@ from services.ingestion.app.state import app_state
 
 
 @pytest.fixture()
-def client() -> TestClient:
+def client() -> Iterator[TestClient]:
     """TestClient без lifespan (init_db не потрібен для unit тестів)."""
     with TestClient(app, raise_server_exceptions=True) as c:
         yield c
 
 
 @pytest.fixture(autouse=True)
-def reset_state() -> Generator[None, None, None]:
+def reset_state() -> Iterator[None]:
     """Скидає app_state перед кожним тестом."""
     app_state.last_cycle_at = None
     app_state.last_cycle_stats = None
