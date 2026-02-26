@@ -1,6 +1,4 @@
 # services/ingestion/app/persist.py
-import sqlite3
-
 from services.ingestion.db.models import MatchDB as DBMatch
 from services.ingestion.db.models import MatchPlayerDB, PlayerDB
 from services.ingestion.db.repositories import (
@@ -18,19 +16,14 @@ def persist_match(match: Match) -> None:
     Зберігає match + players + match_players в одній транзакції.
     При будь-якому винятку — автоматичний rollback (через UnitOfWork).
 
-    Якщо player.player_slot == -1 (контракт без адаптера), використовується
-    enumerate-індекс як fallback для player_slot.
-
     Args:
         match: провалідований domain Match DTO.
     """
     with UnitOfWork() as uow:
-        conn: sqlite3.Connection = uow.conn  # type: ignore[assignment]
-        # uow.conn гарантовано не None всередині блоку with (після __enter__)
-
-        match_repo = MatchRepository(conn)
-        player_repo = PlayerRepository(conn)
-        mp_repo = MatchPlayerRepository(conn)
+        # uow.conn: sqlite3.Connection — гарантовано після __enter__
+        match_repo = MatchRepository(uow.conn)
+        player_repo = PlayerRepository(uow.conn)
+        mp_repo = MatchPlayerRepository(uow.conn)
 
         match_repo.upsert(
             DBMatch(

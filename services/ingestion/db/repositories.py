@@ -53,8 +53,10 @@ class PlayerRepository:
                 "INSERT INTO players (rank_tier, mmr) VALUES (?, ?)",
                 (player.rank_tier, player.mmr),
             )
-            # lastrowid гарантовано int після INSERT у таблицю з AUTOINCREMENT
-            return cur.lastrowid  # type: ignore[return-value]
+            lastrowid = cur.lastrowid
+            if lastrowid is None:
+                raise RuntimeError("INSERT INTO players did not return a lastrowid")
+            return int(lastrowid)
 
         self.conn.execute(
             "INSERT OR IGNORE INTO players (account_id, rank_tier, mmr) VALUES (?, ?, ?)",
@@ -68,7 +70,6 @@ class PlayerRepository:
             "SELECT id FROM players WHERE account_id = ?",
             (player.account_id,),
         ).fetchone()
-        # row["id"] — INTEGER PRIMARY KEY, завжди int після INSERT
         return int(row["id"])
 
 

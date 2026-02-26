@@ -14,15 +14,12 @@ class UnitOfWork:
         with UnitOfWork() as uow:
             MatchRepository(uow.conn).upsert(...)
             PlayerRepository(uow.conn).upsert(...)
-            # commit автоматично при виході
-            # rollback автоматично при винятку
     """
 
-    def __init__(self) -> None:
-        self.conn: sqlite3.Connection | None = None
-
     def __enter__(self) -> "UnitOfWork":
-        self.conn = get_connection()
+        # conn отримує конкретний тип sqlite3.Connection — не Optional.
+        # Репозиторії можуть приймати uow.conn без type: ignore.
+        self.conn: sqlite3.Connection = get_connection()
         self.conn.execute("BEGIN")
         return self
 
@@ -32,8 +29,6 @@ class UnitOfWork:
         exc_val: BaseException | None,
         exc_tb: object,
     ) -> Literal[False]:
-        # mypy вимагає Literal[False] якщо __exit__ ніколи не повертає True
-        assert self.conn is not None  # гарантовано після __enter__
         try:
             if exc_type is None:
                 self.conn.commit()
@@ -41,5 +36,4 @@ class UnitOfWork:
                 self.conn.rollback()
         finally:
             self.conn.close()
-            self.conn = None
         return False
