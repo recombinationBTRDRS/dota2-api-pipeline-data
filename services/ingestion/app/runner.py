@@ -18,7 +18,7 @@ from services.ingestion.providers.opendota.explorer_client import (
 
 logger = logging.getLogger(__name__)
 
-_MIN_INTERVAL_SEC = 10  # мінімально допустимий інтервал між циклами
+_MIN_INTERVAL_SEC = 10
 
 
 @dataclass
@@ -48,16 +48,13 @@ class Runner:
         if raw_interval <= 0:
             logger.warning(
                 "interval_sec=%s is invalid, falling back to minimum %s",
-                raw_interval,
-                _MIN_INTERVAL_SEC,
+                raw_interval, _MIN_INTERVAL_SEC,
             )
             raw_interval = _MIN_INTERVAL_SEC
         self._interval = raw_interval
-
         self._running = False
 
     def _build_filter(self) -> DiscoveryFilter:
-        """Будує DiscoveryFilter з поточних settings."""
         return DiscoveryFilter(
             lobby_type=settings.DISCOVERY_LOBBY_TYPE,
             min_mmr=settings.DISCOVERY_MIN_MMR,
@@ -73,16 +70,13 @@ class Runner:
     def _mark_ok(self, match_id: int) -> None:
         with UnitOfWork() as uow:
             IngestionLogRepository(uow.conn).mark_ok(
-                match_id=match_id,
-                ingested_at=int(time.time()),
+                match_id=match_id, ingested_at=int(time.time()),
             )
 
     def _mark_failed(self, match_id: int, error: str) -> None:
         with UnitOfWork() as uow:
             IngestionLogRepository(uow.conn).mark_failed(
-                match_id=match_id,
-                ingested_at=int(time.time()),
-                error=error,
+                match_id=match_id, ingested_at=int(time.time()), error=error,
             )
 
     def run_cycle(self) -> CycleStats:
@@ -116,11 +110,9 @@ class Runner:
             stats.discovered, stats.skipped, stats.ingested, stats.failed,
         )
 
+        # asdict вже включає errors — не дублюємо
         app_state.last_cycle_at = int(time.time())
-        app_state.last_cycle_stats = {
-            **asdict(stats),
-            "errors": stats.errors,
-        }
+        app_state.last_cycle_stats = asdict(stats)
 
         return stats
 
@@ -143,7 +135,6 @@ class Runner:
         logger.info("Runner stopped")
 
     def stop(self) -> None:
-        """Сигналізує runner-у зупинитись після поточного циклу."""
         logger.info("Stop requested, finishing current cycle...")
         self._running = False
 
@@ -156,6 +147,14 @@ class Runner:
         self.stop()
 
     def _interruptible_sleep(self, seconds: int) -> None:
+        """Sleep що переривається при stop().
+
+        Перераховує remaining в кожній ітерації — уникає negative sleep
+        і race condition якщо цикл зайняв більше часу ніж seconds.
+        """
         deadline = time.time() + seconds
-        while self._running and time.time() < deadline:
-            time.sleep(min(1.0, deadline - time.time()))
+        while self._running:
+            remaining = deadline - time.time()
+            if remaining <= 0:
+                break
+            time.sleep(min(1.0, remaining))

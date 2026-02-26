@@ -24,9 +24,13 @@ class DiscoveryProvider(Protocol):
 class OpenDotaExplorerClient:
     """Клієнт до OpenDota Explorer API (/explorer?sql=...).
 
-    Приймає готовий SQL рядок від caller-а (runner/app шар) —
-    не будує SQL сам, не залежить від DiscoveryFilter або query_builder.
-    Повертає список match_id як list[int].
+    Приймає DiscoveryFilter, будує SQL через build_explorer_sql(f)
+    і виконує запит до /explorer. Повертає list[DiscoveredMatch].
+
+    Retry стратегія:
+    - rate limiting між запитами (OPENDOTA_RATE_LIMIT req/min)
+    - exponential backoff при 429 та 5xx
+    - fail-fast при non-retryable 4xx
     """
 
     def __init__(self) -> None:
@@ -85,9 +89,7 @@ class OpenDotaExplorerClient:
 
             if resp.status_code == 429 or resp.status_code >= 500:
                 sleep = (2 ** attempt) + random.random()
-                last_exc = RuntimeError(
-                    f"HTTP {resp.status_code}: {resp.text[:200]}"
-                )
+                last_exc = RuntimeError(f"HTTP {resp.status_code}: {resp.text[:200]}")
                 logger.warning(
                     "Explorer %s, retry %s/%s, sleep %.2fs",
                     resp.status_code, attempt, settings.OPENDOTA_RETRIES, sleep,
@@ -115,23 +117,26 @@ class OpenDotaExplorerClient:
         )
 
     def discover(self, f: DiscoveryFilter) -> list[DiscoveredMatch]:
-        """Виконує discovery запит і повертає список матчів.
+        """Виконує discovery запит за фільтром і повертає список матчів.
 
-        SQL будується тут через build_explorer_sql — єдина точка де
-        provider знає про domain filter, алеізолює цю залежність в одному методі.
+        Будує SQL через build_explorer_sql(f), виконує GET /explorer,
+        повертає list[DiscoveredMatch] з match_id.
 
         Args:
-            f: фільтри для пошуку матчів.
+            f: DiscoveryFilter з параметрами пошуку.
 
         Returns:
             Список DiscoveredMatch з match_id.
+
+        Raises:
+            RuntimeError: якщо API повернув помилку або retries вичерпані.
+            ValueError: якщо відповідь не містить поля 'rows'.
         """
         sql = build_explorer_sql(f)
         logger.info(
             "Discovery query: lobby_type=%s min_mmr=%s limit=%s patch=%s region=%s",
             f.lobby_type, f.min_mmr, f.limit, f.patch, f.region,
         )
-
         rows = self._get(sql)
         matches = [DiscoveredMatch(match_id=row["match_id"]) for row in rows]
         logger.info("Discovery found %d matches", len(matches))
