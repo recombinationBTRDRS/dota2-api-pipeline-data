@@ -10,11 +10,14 @@ class Settings(BaseSettings):
     OPENDOTA_RETRIES: int = 3
 
     # Match Discovery filters (Task 2.1)
-    DISCOVERY_LOBBY_TYPE: int = 7      # 7 = ranked
-    DISCOVERY_MIN_MMR: int = 3000      # avg_mmr filter
-    DISCOVERY_LIMIT: int = 100         # matches per query
-    DISCOVERY_PATCH: int | None = None # None = latest patch
-    DISCOVERY_REGION: int | None = None  # None = all regions
+    DISCOVERY_LOBBY_TYPE: int = 7
+    DISCOVERY_MIN_MMR: int = 3000
+    DISCOVERY_LIMIT: int = 100
+    DISCOVERY_PATCH: int | None = None
+    DISCOVERY_REGION: int | None = None
+
+    # Runner (Task 2.2)
+    DISCOVERY_INTERVAL_SEC: int = 300  # секунд між циклами
 
     # Database
     DB_PATH: str = "services/ingestion/db/data.sqlite"
