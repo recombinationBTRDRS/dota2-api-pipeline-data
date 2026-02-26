@@ -1,11 +1,25 @@
 # services/ingestion/tests/integration/test_persist_integration.py
 """Інтеграційні тести persist_match з реальним SQLite."""
+import sqlite3
+from contextlib import contextmanager
+from typing import Generator
+
 import pytest
 
 from services.ingestion.app.persist import persist_match
 from services.ingestion.db import sqlite as sqlite_module
 from services.ingestion.db.sqlite import get_connection, init_db
 from services.ingestion.domains.matches.dtos import Match, PlayerMatchStats
+
+
+@contextmanager
+def db_conn() -> Generator[sqlite3.Connection, None, None]:
+    """Контекстний менеджер що гарантує закриття з'єднання після використання."""
+    conn = get_connection()
+    try:
+        yield conn
+    finally:
+        conn.close()
 
 
 @pytest.fixture()
@@ -59,7 +73,7 @@ def test_persist_match_saves_correctly(db) -> None:
     """persist_match зберігає match + players + match_players."""
     persist_match(make_match())
 
-    with get_connection() as conn:
+    with db_conn() as conn:
         assert conn.execute("SELECT COUNT(*) FROM matches").fetchone()[0] == 1
         assert conn.execute("SELECT COUNT(*) FROM players").fetchone()[0] == 2
         assert conn.execute("SELECT COUNT(*) FROM match_players").fetchone()[0] == 2
@@ -71,7 +85,7 @@ def test_persist_match_idempotent(db) -> None:
     persist_match(match)
     persist_match(match)
 
-    with get_connection() as conn:
+    with db_conn() as conn:
         assert conn.execute("SELECT COUNT(*) FROM matches").fetchone()[0] == 1
         assert conn.execute("SELECT COUNT(*) FROM match_players").fetchone()[0] == 2
 
@@ -82,6 +96,6 @@ def test_persist_anonymous_player_no_duplicate_match_players(db) -> None:
     persist_match(match)
     persist_match(match)
 
-    with get_connection() as conn:
+    with db_conn() as conn:
         count = conn.execute("SELECT COUNT(*) FROM match_players").fetchone()[0]
         assert count == 2
