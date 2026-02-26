@@ -1,0 +1,76 @@
+# .coderabbit.yaml
+language: "uk"
+
+reviews:
+  profile: "assertive"
+  request_changes_workflow: true
+  auto_review:
+    enabled: true
+    drafts: false
+
+  path_instructions:
+    - path: "services/ingestion/domains/**"
+      instructions: |
+        Це domain шар — бізнес-логіка.
+        ЗАБОРОНЕНО імпортувати з db/ або providers/.
+        Перевір що немає: from services.ingestion.db import ...
+        Перевір що немає: from services.ingestion.providers import ...
+
+    - path: "services/ingestion/db/**"
+      instructions: |
+        Це persistence шар.
+        ЗАБОРОНЕНО імпортувати з providers/ або domains/.
+        Єдиний місток між domain і db — тільки app/persist.py.
+        Перевір upsert — має бути ON CONFLICT DO UPDATE, не просто INSERT.
+
+    - path: "services/ingestion/providers/**"
+      instructions: |
+        Це provider шар — зовнішні API.
+        ЗАБОРОНЕНО імпортувати з domains/ або db/.
+        Перевір що немає hardcoded констант — URL, таймаути, ретраї мають
+        йти через settings з app/config.py.
+        При 429 — має бути backoff і retry.
+        При вичерпанні retries — виняток з контекстом.
+
+    - path: "services/ingestion/app/**"
+      instructions: |
+        Це orchestration шар — єдиний хто знає про всіх.
+        Перевір що немає @app.on_event("startup") — тільки lifespan handler.
+        persist_match має зберігати match + players + match_players атомарно.
+        Всі ENV змінні через settings, не hardcoded.
+
+    - path: "services/ingestion/tests/**"
+      instructions: |
+        Перевір що domain тести не торкаються DB або HTTP.
+        Для HTTP — mock requests.get, не реальний запит.
+        Інтеграційні тести в tests/integration/ мають перевіряти повний пайплайн.
+        persist_match в юніт тестах має бути замокований.
+        time.sleep має бути замокований в тестах клієнта.
+        conn.close() має бути в try/finally або через context manager.
+
+    - path: "**"
+      instructions: |
+        Загальні правила для всього проекту:
+
+        АРХІТЕКТУРА:
+        Чотири ізольованих шари: providers/ → domains/ → app/ → db/
+        Два окремих Match не змішувати:
+          - domains/matches/dtos.py → Match (бізнес-логіка)
+          - db/models.py → MatchDB (DB структура)
+        Якщо в одному файлі потрібні обидва — обовʼязковий аліас DBMatch.
+
+        VALIDATION:
+        Вхідні дані валідуються через pydantic перед обробкою.
+        parse_match кидає ValidationError на биті дані.
+        account_id може бути None — має бути явно int | None.
+
+        DEPRECATED:
+        Заборонено @app.on_event — тільки lifespan handler.
+
+        ІГНОРУВАТИ:
+        Стилістичні зауваження якщо ruff check проходить.
+        Довжину рядків якщо не ламає читабельність.
+        Відсутність docstrings на приватних методах.
+
+chat:
+  auto_reply: true
