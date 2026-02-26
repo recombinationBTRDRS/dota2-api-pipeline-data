@@ -1,22 +1,21 @@
 # services/ingestion/domains/matches/parsers.py
-
-from services.ingestion.domains.matches.dtos import Match, PlayerMatchStats
+from services.ingestion.domains.matches.dtos import Match
 
 
 def parse_match(contract: dict) -> Match:
-    """
-    Перетворює normalized contract dict -> Domain Match DTO.
-    Fail-fast: відсутні ключі верхнього рівня викликають KeyError;
-    некоректні поля гравців викликають ValidationError (Pydantic).
-    """
-    players = [PlayerMatchStats(**p) for p in contract["players"]]
+    """Перетворює normalized contract dict → Domain Match.
 
-    return Match(
-        match_id=contract["match_id"],
-        duration=contract["duration"],
-        radiant_win=contract["radiant_win"],
-        start_time=contract["start_time"],
-        radiant_score=contract["radiant_score"],
-        dire_score=contract["dire_score"],
-        players=players,
-    )
+    Використовує Match.model_validate для єдиної точки валідації:
+    будь-які відсутні або некоректні поля (включно з вкладеними players)
+    кидають pydantic.ValidationError — fail-fast без KeyError-сюрпризів.
+
+    Args:
+        contract: нормалізований dict від adapt_match().
+
+    Returns:
+        Провалідований Match DTO.
+
+    Raises:
+        pydantic.ValidationError: якщо contract не відповідає схемі.
+    """
+    return Match.model_validate(contract)

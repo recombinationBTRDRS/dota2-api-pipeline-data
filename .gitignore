@@ -34,7 +34,6 @@ Thumbs.db
 # Docker
 *.log
 
-# SQLite
+# SQLite — тільки SQLite файли, не всі .db
 *.sqlite3
 *.sqlite
-*.db

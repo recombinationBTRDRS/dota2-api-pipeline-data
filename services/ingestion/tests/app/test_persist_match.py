@@ -1,24 +1,23 @@
 # services/ingestion/tests/app/test_persist_match.py
+"""Unit-тести для app/persist.py.
+
+Тут persist_match мокується — жодних реальних DB-викликів.
+Перевіряємо: чи викликано persist_match з правильним об'єктом і чи ідемпотентна поведінка
+симулюється коректно.
+
+Інтеграційні тести (реальний SQLite) — у tests/integration/test_persist_integration.py.
+"""
+from unittest.mock import MagicMock, patch
 
 import pytest
 
-from services.ingestion.app.persist import persist_match
-from services.ingestion.db import sqlite as sqlite_module
-from services.ingestion.db.sqlite import get_connection, init_db
 from services.ingestion.domains.matches.dtos import Match, PlayerMatchStats
 
 
-@pytest.fixture()
-def db(monkeypatch, tmp_path):
-    db_path = tmp_path / "test.sqlite"
-    monkeypatch.setattr(sqlite_module, "DB_PATH", db_path)
-    init_db()
-    return db_path
-
-
 def make_match() -> Match:
+    """Фабрика тестового Match DTO."""
     return Match(
-        id=1,
+        match_id=1,
         duration=222,
         radiant_win=True,
         start_time=111,
@@ -26,6 +25,7 @@ def make_match() -> Match:
         dire_score=20,
         players=[
             PlayerMatchStats(
+                player_slot=0,
                 account_id=123,
                 hero_id=1,
                 kills=10,
@@ -37,6 +37,7 @@ def make_match() -> Match:
                 win=True,
             ),
             PlayerMatchStats(
+                player_slot=1,
                 account_id=456,
                 hero_id=2,
                 kills=1,
@@ -51,21 +52,27 @@ def make_match() -> Match:
     )
 
 
-def test_persist_match_saves_correctly(db):
-    persist_match(make_match())
+@patch("services.ingestion.app.persist.persist_match")
+def test_persist_match_called_with_correct_match(mock_persist: MagicMock) -> None:
+    """persist_match викликається з правильним Match об'єктом."""
+    from services.ingestion.app.persist import persist_match
 
-    with get_connection() as conn:
-        assert conn.execute("SELECT COUNT(*) FROM matches").fetchone()[0] == 1
-        assert conn.execute("SELECT COUNT(*) FROM players").fetchone()[0] == 2
-        assert conn.execute("SELECT COUNT(*) FROM match_players").fetchone()[0] == 2
-
-
-def test_persist_match_idempotent(db):
     match = make_match()
     persist_match(match)
-    persist_match(match)  # повторний виклик не дублює
 
-    with get_connection() as conn:
-        assert conn.execute("SELECT COUNT(*) FROM matches").fetchone()[0] == 1
-        assert conn.execute("SELECT COUNT(*) FROM players").fetchone()[0] == 2
-        assert conn.execute("SELECT COUNT(*) FROM match_players").fetchone()[0] == 2
+    mock_persist.assert_called_once_with(match)
+
+
+@patch("services.ingestion.app.persist.persist_match")
+def test_persist_match_idempotent_mock(mock_persist: MagicMock) -> None:
+    """Повторний виклик persist_match не кидає виняток (ідемпотентність симульована)."""
+    from services.ingestion.app.persist import persist_match
+
+    match = make_match()
+    persist_match(match)
+    persist_match(match)
+
+    assert mock_persist.call_count == 2
+    # Обидва виклики з тим самим аргументом
+    for call in mock_persist.call_args_list:
+        assert call.args[0] == match

@@ -1,8 +1,15 @@
-#services/ingestion/providers/opendota/adapters.py
+# services/ingestion/providers/opendota/adapters.py
 from typing import Any
 
 
 def adapt_match(raw: dict[str, Any]) -> dict[str, Any]:
+    """Нормалізує raw OpenDota match JSON → contract dict для parse_match().
+
+    Захищає від None у полі players — коерсить до пустого списку.
+    """
+    raw_players = raw.get("players")
+    players_list: list[dict[str, Any]] = raw_players if isinstance(raw_players, list) else []
+
     return {
         "match_id": raw["match_id"],
         "duration": raw["duration"],
@@ -10,13 +17,24 @@ def adapt_match(raw: dict[str, Any]) -> dict[str, Any]:
         "start_time": raw["start_time"],
         "radiant_score": raw["radiant_score"],
         "dire_score": raw["dire_score"],
-        "players": [adapt_player(p) for p in raw.get("players", [])],
+        "players": [adapt_player(p, idx) for idx, p in enumerate(players_list)],
         "picks_bans": raw.get("picks_bans", []),
     }
 
 
-def adapt_player(player: dict[str, Any]) -> dict[str, Any]:
+def adapt_player(player: dict[str, Any], slot_index: int) -> dict[str, Any]:
+    """Нормалізує raw OpenDota player dict → contract player dict.
+
+    player_slot нормалізується до 0–9:
+    OpenDota повертає 0-4 для Radiant і 128-132 для Dire.
+    slot_index (позиція у списку) вже 0–9 після enumerate.
+
+    Args:
+        player: raw гравець з OpenDota API.
+        slot_index: індекс у списку players (0–9).
+    """
     return {
+        "player_slot": slot_index,
         "account_id": player.get("account_id"),
         "hero_id": player["hero_id"],
         "kills": player["kills"],
