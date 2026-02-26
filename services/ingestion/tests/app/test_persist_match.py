@@ -9,8 +9,6 @@
 """
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from services.ingestion.domains.matches.dtos import Match, PlayerMatchStats
 
 

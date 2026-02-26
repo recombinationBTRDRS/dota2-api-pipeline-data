@@ -1,5 +1,5 @@
 # services/ingestion/db/models.py
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 
 @dataclass(slots=True)
