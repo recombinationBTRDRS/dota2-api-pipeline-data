@@ -5,8 +5,6 @@ from typing import Literal
 
 @dataclass(slots=True)
 class MatchDB:
-    """DB-представлення матчу (окремо від domain DTO)."""
-
     id: int
     start_time: int
     duration: int
@@ -17,8 +15,6 @@ class MatchDB:
 
 @dataclass(slots=True)
 class PlayerDB:
-    """DB-представлення гравця. account_id може бути None для анонімів."""
-
     id: int | None
     account_id: int | None
     rank_tier: int | None
@@ -27,13 +23,6 @@ class PlayerDB:
 
 @dataclass(slots=True)
 class MatchPlayerDB:
-    """DB-представлення участі гравця у матчі.
-
-    player_slot (0–9) — унікальний слот у матчі, частина PK (match_id, player_slot).
-    Обов'язкове поле — caller відповідає за передачу коректного значення.
-    player_id — FK до players.id.
-    """
-
     match_id: int
     player_id: int | None
     hero_id: int
@@ -48,14 +37,23 @@ class MatchPlayerDB:
 
 @dataclass(slots=True)
 class IngestionLogDB:
-    """DB-представлення запису в журналі інжесту.
-
-    status: 'ok' — успішно збережено, 'failed' — помилка при інжесті.
-    error: текст помилки (max 500 символів), None при status='ok'.
-    ingested_at: unix timestamp.
-    """
-
     match_id: int
     status: Literal["ok", "failed"]
     ingested_at: int
     error: str | None
+
+
+@dataclass(slots=True)
+class HeroDB:
+    """DB-представлення героя Dota 2 (Task 3.1).
+
+    id = OpenDota hero id.
+    primary_attr: 'str' | 'agi' | 'int' | 'all'.
+    attack_type: 'Melee' | 'Ranged'.
+    """
+
+    id: int
+    name: str                                        # 'npc_dota_hero_antimage'
+    localized_name: str                              # 'Anti-Mage'
+    primary_attr: Literal["str", "agi", "int", "all"]
+    attack_type: Literal["Melee", "Ranged"]
