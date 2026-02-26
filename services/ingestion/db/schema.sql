@@ -44,3 +44,15 @@ CREATE INDEX IF NOT EXISTS idx_match_players_match_id
     ON match_players (match_id);
 CREATE INDEX IF NOT EXISTS idx_match_players_player_id
     ON match_players (player_id);
+
+-- Журнал інжесту матчів (Task 2.3 — Deduplication).
+-- match_id — PK, тому кожен матч має рівно один запис.
+-- status: 'ok' — успішно збережено, 'failed' — помилка при інжесті.
+-- error — текст помилки (truncated до 500 символів), NULL при status='ok'.
+-- ingested_at — unix timestamp моменту запису.
+CREATE TABLE IF NOT EXISTS ingestion_log (
+    match_id    INTEGER PRIMARY KEY,
+    status      TEXT    NOT NULL CHECK(status IN ('ok', 'failed')),
+    ingested_at INTEGER NOT NULL,
+    error       TEXT
+);

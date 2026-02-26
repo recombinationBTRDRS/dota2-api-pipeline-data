@@ -24,6 +24,7 @@ def test_parse_match_valid_contract():
                 "xpm": 700,
                 "is_radiant": True,
                 "win": True,
+                "player_slot": 0,
             }
         ],
     }

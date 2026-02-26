@@ -1,5 +1,6 @@
 # services/ingestion/db/models.py
 from dataclasses import dataclass
+from typing import Literal
 
 
 @dataclass(slots=True)
@@ -28,8 +29,8 @@ class PlayerDB:
 class MatchPlayerDB:
     """DB-представлення участі гравця у матчі.
 
-    player_slot — унікальний слот у матчі, частина PK (match_id, player_slot).
-    Якщо не передано явно (старий код/тести) — persist.py підставить enumerate-індекс.
+    player_slot (0–9) — унікальний слот у матчі, частина PK (match_id, player_slot).
+    Обов'язкове поле — caller відповідає за передачу коректного значення.
     player_id — FK до players.id.
     """
 
@@ -42,4 +43,19 @@ class MatchPlayerDB:
     gpm: int
     xpm: int
     win: bool
-    player_slot: int = -1  # default sentinel; має бути після всіх required полів
+    player_slot: int
+
+
+@dataclass(slots=True)
+class IngestionLogDB:
+    """DB-представлення запису в журналі інжесту.
+
+    status: 'ok' — успішно збережено, 'failed' — помилка при інжесті.
+    error: текст помилки (max 500 символів), None при status='ok'.
+    ingested_at: unix timestamp.
+    """
+
+    match_id: int
+    status: Literal["ok", "failed"]
+    ingested_at: int
+    error: str | None

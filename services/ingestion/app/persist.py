@@ -14,13 +14,13 @@ def persist_match(match: Match) -> None:
     """Атомарне збереження матчу у БД.
 
     Зберігає match + players + match_players в одній транзакції.
-    При будь-якому винятку — автоматичний rollback (через UnitOfWork).
+    player_slot береться напряму з domain DTO — адаптер і parser
+    відповідають за коректне значення (0–9).
 
     Args:
-        match: провалідований domain Match DTO.
+        match: провалідований Match DTO з player_slot >= 0 для кожного гравця.
     """
     with UnitOfWork() as uow:
-        # uow.conn: sqlite3.Connection — гарантовано після __enter__
         match_repo = MatchRepository(uow.conn)
         player_repo = PlayerRepository(uow.conn)
         mp_repo = MatchPlayerRepository(uow.conn)
@@ -36,7 +36,7 @@ def persist_match(match: Match) -> None:
             )
         )
 
-        for idx, p in enumerate(match.players):
+        for p in match.players:
             player_id = player_repo.upsert(
                 PlayerDB(
                     id=None,
@@ -45,8 +45,6 @@ def persist_match(match: Match) -> None:
                     mmr=None,
                 )
             )
-
-            slot = p.player_slot if p.player_slot >= 0 else idx
 
             mp_repo.upsert(
                 MatchPlayerDB(
@@ -59,6 +57,6 @@ def persist_match(match: Match) -> None:
                     gpm=p.gpm,
                     xpm=p.xpm,
                     win=p.win,
-                    player_slot=slot,
+                    player_slot=p.player_slot,
                 )
             )

@@ -1,13 +1,17 @@
-#services/ingestion/tests/test_health.py
+# services/ingestion/tests/test_health.py
+from unittest.mock import patch
 
-from httpx import ASGITransport, AsyncClient
+from fastapi.testclient import TestClient
 
 from services.ingestion.app.main import app
 
 
-async def test_health():
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as ac:
-        resp = await ac.get("/health")
-        assert resp.status_code == 200
-        assert resp.json() == {"status": "ok"}
+def test_health():
+    """Health endpoint повертає 200 і коректну схему відповіді."""
+    with TestClient(app) as client:
+        with patch("services.ingestion.app.main._check_db", return_value=True):
+            resp = client.get("/health")
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["status"] == "ok"
+            assert data["db_ok"] is True

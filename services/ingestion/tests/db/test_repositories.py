@@ -65,6 +65,7 @@ def test_match_player_upsert_idempotent(db):
             match_id=1, player_id=player_id, hero_id=46,
             kills=10, deaths=2, assists=5,
             gpm=600, xpm=700, win=True,
+            player_slot=0,
         )
         repo = MatchPlayerRepository(uow.conn)
         repo.upsert(mp)
