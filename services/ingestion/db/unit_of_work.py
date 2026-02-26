@@ -1,14 +1,15 @@
 # services/ingestion/db/unit_of_work.py
 import sqlite3
+from typing import Literal
 
 from services.ingestion.db.sqlite import get_connection
 
 
 class UnitOfWork:
-    """
-    Контекстний менеджер який гарантує атомарність операцій.
+    """Контекстний менеджер який гарантує атомарність операцій.
+
     Всі репозиторії отримують спільне з'єднання через uow.conn.
-    
+
     Використання:
         with UnitOfWork() as uow:
             MatchRepository(uow.conn).upsert(...)
@@ -17,7 +18,7 @@ class UnitOfWork:
             # rollback автоматично при винятку
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.conn: sqlite3.Connection | None = None
 
     def __enter__(self) -> "UnitOfWork":
@@ -25,7 +26,14 @@ class UnitOfWork:
         self.conn.execute("BEGIN")
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb) -> bool:
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: object,
+    ) -> Literal[False]:
+        # mypy вимагає Literal[False] якщо __exit__ ніколи не повертає True
+        assert self.conn is not None  # гарантовано після __enter__
         try:
             if exc_type is None:
                 self.conn.commit()
@@ -34,5 +42,4 @@ class UnitOfWork:
         finally:
             self.conn.close()
             self.conn = None
-
         return False

@@ -1,4 +1,6 @@
 # services/ingestion/app/persist.py
+import sqlite3
+
 from services.ingestion.db.models import MatchDB as DBMatch
 from services.ingestion.db.models import MatchPlayerDB, PlayerDB
 from services.ingestion.db.repositories import (
@@ -23,9 +25,12 @@ def persist_match(match: Match) -> None:
         match: провалідований domain Match DTO.
     """
     with UnitOfWork() as uow:
-        match_repo = MatchRepository(uow.conn)
-        player_repo = PlayerRepository(uow.conn)
-        mp_repo = MatchPlayerRepository(uow.conn)
+        conn: sqlite3.Connection = uow.conn  # type: ignore[assignment]
+        # uow.conn гарантовано не None всередині блоку with (після __enter__)
+
+        match_repo = MatchRepository(conn)
+        player_repo = PlayerRepository(conn)
+        mp_repo = MatchPlayerRepository(conn)
 
         match_repo.upsert(
             DBMatch(
@@ -48,13 +53,11 @@ def persist_match(match: Match) -> None:
                 )
             )
 
-            # Якщо адаптер не проставив player_slot — fallback на enumerate-індекс.
             slot = p.player_slot if p.player_slot >= 0 else idx
 
             mp_repo.upsert(
                 MatchPlayerDB(
                     match_id=match.id,
-                    player_slot=slot,
                     player_id=player_id,
                     hero_id=p.hero_id,
                     kills=p.kills,
@@ -63,5 +66,6 @@ def persist_match(match: Match) -> None:
                     gpm=p.gpm,
                     xpm=p.xpm,
                     win=p.win,
+                    player_slot=slot,
                 )
             )

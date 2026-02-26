@@ -39,8 +39,8 @@ class PlayerRepository:
     """Репозиторій для таблиці players.
 
     Обробляє два кейси:
-    - account_id IS NOT NULL → upsert через partial unique index, повертає id.
-    - account_id IS NULL     → завжди INSERT нового анонімного гравця, повертає lastrowid.
+    - account_id IS NULL  → INSERT нового анонімного гравця, повертає lastrowid.
+    - account_id NOT NULL → INSERT OR IGNORE + UPDATE, повертає id по account_id.
     """
 
     def __init__(self, conn: sqlite3.Connection) -> None:
@@ -49,16 +49,13 @@ class PlayerRepository:
     def upsert(self, player: PlayerDB) -> int:
         """Зберігає гравця і повертає його id у таблиці players."""
         if player.account_id is None:
-            # Анонімний гравець — завжди новий запис, account_id не вставляємо.
             cur = self.conn.execute(
                 "INSERT INTO players (rank_tier, mmr) VALUES (?, ?)",
                 (player.rank_tier, player.mmr),
             )
-            return int(cur.lastrowid)
+            # lastrowid гарантовано int після INSERT у таблицю з AUTOINCREMENT
+            return cur.lastrowid  # type: ignore[return-value]
 
-        # Реальний акаунт — двокроковий upsert:
-        # INSERT OR IGNORE — якщо account_id вже є, нічого не робить.
-        # UPDATE — оновлює rank_tier/mmr незалежно від того чи був INSERT.
         self.conn.execute(
             "INSERT OR IGNORE INTO players (account_id, rank_tier, mmr) VALUES (?, ?, ?)",
             (player.account_id, player.rank_tier, player.mmr),
@@ -71,6 +68,7 @@ class PlayerRepository:
             "SELECT id FROM players WHERE account_id = ?",
             (player.account_id,),
         ).fetchone()
+        # row["id"] — INTEGER PRIMARY KEY, завжди int після INSERT
         return int(row["id"])
 
 
