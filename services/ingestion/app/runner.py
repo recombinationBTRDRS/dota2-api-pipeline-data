@@ -4,16 +4,17 @@
 Основний цикл: discover → filter known → ingest each → log result.
 
 Запуск:
-    python -m services.ingestion.app.runner
-    python -m services.ingestion.app.runner --interval 60
+    python -m services.ingestion.app
+    python -m services.ingestion.app --interval 60
 """
 import logging
 import signal
 import time
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 
 from services.ingestion.app.config import settings
 from services.ingestion.app.ingest_match import ingest_match
+from services.ingestion.app.state import app_state
 from services.ingestion.db.repositories import IngestionLogRepository
 from services.ingestion.db.unit_of_work import UnitOfWork
 from services.ingestion.domains.discovery.dtos import DiscoveryFilter
@@ -97,6 +98,7 @@ class Runner:
 
         Помилка на одному match_id не зупиняє цикл — логується і записується
         в ingestion_log зі статусом 'failed'.
+        Після завершення оновлює app_state для /stats endpoint.
 
         Returns:
             CycleStats зі статистикою циклу.
@@ -136,6 +138,15 @@ class Runner:
             stats.ingested,
             stats.failed,
         )
+
+        # Оновлюємо глобальний стан для /stats endpoint
+        now = int(time.time())
+        app_state.last_cycle_at = now
+        app_state.last_cycle_stats = {
+            **asdict(stats),
+            "errors": stats.errors,  # list[tuple] — asdict конвертує у list[list]
+        }
+
         return stats
 
     def start(self) -> None:
