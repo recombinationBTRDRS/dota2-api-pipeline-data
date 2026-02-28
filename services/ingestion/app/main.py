@@ -7,6 +7,7 @@ from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 
 from services.ingestion.app.config import settings
+from services.ingestion.app.routers.analytics import router as analytics_router
 from services.ingestion.app.state import app_state
 from services.ingestion.db.sqlite import get_connection, init_db
 
@@ -14,7 +15,6 @@ logger = logging.getLogger(__name__)
 
 
 def setup_logging() -> None:
-    """Налаштовує structured logging з рівнем з settings."""
     logging.basicConfig(
         level=settings.LOG_LEVEL,
         format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
@@ -22,10 +22,6 @@ def setup_logging() -> None:
 
 
 def _check_db() -> bool:
-    """Перевіряє доступність БД через SELECT 1.
-
-    Гарантує закриття з'єднання через finally незалежно від результату.
-    """
     conn = get_connection()
     try:
         conn.execute("SELECT 1")
@@ -39,7 +35,6 @@ def _check_db() -> bool:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Lifespan handler: ініціалізація при старті, cleanup при зупинці."""
     setup_logging()
     logger.info("Starting Ingestion Service")
     await asyncio.get_event_loop().run_in_executor(None, init_db)
@@ -49,14 +44,11 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Ingestion Service", lifespan=lifespan)
 
+app.include_router(analytics_router, tags=["analytics"])
+
 
 @app.get("/health")
 def health() -> JSONResponse:
-    """Health check endpoint.
-
-    Перевіряє доступність БД через SELECT 1.
-    Повертає 200 якщо все OK, 503 якщо БД недоступна.
-    """
     db_ok = _check_db()
     return JSONResponse(
         status_code=200 if db_ok else 503,
@@ -66,7 +58,6 @@ def health() -> JSONResponse:
 
 @app.get("/stats")
 def stats() -> JSONResponse:
-    """Статистика останнього discovery циклу."""
     return JSONResponse(
         content={
             "last_cycle_at": app_state.last_cycle_at,
