@@ -10,6 +10,7 @@ from services.ingestion.db.models import (
     PlayerDB,
 )
 from services.ingestion.db.models import MatchDB as DBMatch
+from services.ingestion.domains.roles.dtos import Role
 
 _MAX_ERROR_LEN = 500
 
@@ -199,6 +200,42 @@ class HeroRepository:
                    primary_attr=r["primary_attr"], attack_type=r["attack_type"])
             for r in rows
         ]
+
+    def get_with_role(self, hero_id: int) -> tuple[HeroDB, Role | None] | None:
+        """Повертає (HeroDB, Role | None) за hero_id або None якщо герой не знайдений.
+
+        Role визначається через JOIN з hero_role_scores.primary_pos.
+        Якщо запис у hero_role_scores відсутній — role буде None у поверненому tuple.
+
+        Використовується в enrich_match() щоб збагатити PlayerMatchStats
+        даними героя і його основною роллю.
+        """
+        row = self.conn.execute(
+            """
+            SELECT h.id, h.name, h.localized_name, h.primary_attr, h.attack_type,
+                   hrs.primary_pos
+            FROM heroes h
+            LEFT JOIN hero_role_scores hrs ON hrs.hero_id = h.id
+            WHERE h.id = ?
+            """,
+            (hero_id,),
+        ).fetchone()
+
+        if row is None:
+            return None
+
+        hero = HeroDB(
+            id=row["id"],
+            name=row["name"],
+            localized_name=row["localized_name"],
+            primary_attr=row["primary_attr"],
+            attack_type=row["attack_type"],
+        )
+
+        # primary_pos може бути NULL якщо sync_role_scores ще не запускався
+        role: Role | None = Role(row["primary_pos"]) if row["primary_pos"] is not None else None
+
+        return hero, role
 
 
 class ItemRepository:
