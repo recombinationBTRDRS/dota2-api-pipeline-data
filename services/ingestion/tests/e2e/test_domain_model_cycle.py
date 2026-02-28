@@ -24,7 +24,6 @@ from services.ingestion.db.unit_of_work import UnitOfWork
 from services.ingestion.domains.matches.dtos import Match, PlayerMatchStats
 from services.ingestion.domains.roles.dtos import Role
 
-
 # ── fixtures ──────────────────────────────────────────────────────────────────
 
 
