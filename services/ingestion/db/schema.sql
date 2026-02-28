@@ -67,11 +67,6 @@ CREATE TABLE IF NOT EXISTS items (
 );
 
 -- Бальна оцінка героїв по позиціях (Task 3.3).
--- hero_id PK + FK → heroes.id ON DELETE CASCADE.
--- pos1-5: бали 1-5 (1=carry, 2=mid, 3=offlane, 4=support, 5=hard_support).
--- flex_score: кількість позицій з балом >= 3 (pre-computed при sync).
--- primary_pos: позиція з найвищим балом (pre-computed при sync).
--- Джерело: domains/heroes/meta.py + providers/opendota/hero_id_map.py
 CREATE TABLE IF NOT EXISTS hero_role_scores (
     hero_id     INTEGER PRIMARY KEY,
     pos1        INTEGER NOT NULL CHECK(pos1 BETWEEN 1 AND 5),
@@ -88,3 +83,20 @@ CREATE INDEX IF NOT EXISTS idx_hero_role_scores_primary_pos
     ON hero_role_scores (primary_pos);
 CREATE INDEX IF NOT EXISTS idx_hero_role_scores_flex
     ON hero_role_scores (flex_score);
+
+-- Предмети гравців у матчі (Task 4.3).
+-- slot: 0–5 (6 item slots у Dota 2).
+-- item_id = 0 означає порожній слот — не зберігається (фільтрується в persist.py).
+-- ON DELETE CASCADE: при видаленні match_players рядка видаляються і його items.
+CREATE TABLE IF NOT EXISTS match_player_items (
+    match_id    INTEGER NOT NULL,
+    player_slot INTEGER NOT NULL,
+    slot        INTEGER NOT NULL CHECK(slot BETWEEN 0 AND 5),
+    item_id     INTEGER NOT NULL CHECK(item_id > 0),
+    PRIMARY KEY (match_id, player_slot, slot),
+    FOREIGN KEY (match_id, player_slot)
+        REFERENCES match_players(match_id, player_slot) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_match_player_items_lookup
+    ON match_player_items (match_id, player_slot);

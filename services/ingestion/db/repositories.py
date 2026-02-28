@@ -8,6 +8,7 @@ from services.ingestion.db.models import (
     IngestionLogDB,
     ItemDB,
     MatchPlayerDB,
+    MatchPlayerItemDB,
     PlayerDB,
 )
 from services.ingestion.db.models import MatchDB as DBMatch
@@ -573,3 +574,139 @@ class HeroStatsRepository:
             (primary_pos, min_matches, limit),
         ).fetchall()
         return [_build_hero_role_stats_row(r) for r in rows]
+
+class MatchPlayerItemRepository:
+    """Зберігає предмети гравців у матчі (Task 4.3).
+
+    Тільки write — читання через ItemBuildRepository.
+    """
+
+    def __init__(self, conn: sqlite3.Connection) -> None:
+        self.conn = conn
+
+    def upsert_batch(self, items: list[MatchPlayerItemDB]) -> None:
+        """Ідемпотентне збереження списку item записів.
+
+        ON CONFLICT DO NOTHING — повторний persist_match не дублює записи.
+        item_id=0 не передається сюди — фільтрується в persist.py.
+        """
+        self.conn.executemany(
+            """
+            INSERT INTO match_player_items (match_id, player_slot, slot, item_id)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(match_id, player_slot, slot) DO NOTHING
+            """,
+            [(i.match_id, i.player_slot, i.slot, i.item_id) for i in items],
+        )
+
+
+@dataclass(slots=True)
+class ItemBuildEntry:
+    """Агрегований запис популярності предмету для героя (Task 4.3).
+
+    Це db-layer dataclass, не domain DTO.
+    times_bought: кількість матчів де герой мав цей item.
+    pickrate: times_bought / total_matches для цього героя, округлено 4 знаки.
+    win_pickrate: times_bought у виграних матчах / total_wins, округлено 4 знаки.
+                  0.0 якщо total_wins = 0.
+    """
+
+    item_id: int
+    item_name: str | None    # localized_name з JOIN items, None якщо items не синкнуті
+    times_bought: int
+    pickrate: float
+    win_pickrate: float
+
+
+class ItemBuildRepository:
+    """Аналітичний репозиторій: популярність предметів по герою (Task 4.3).
+
+    Всі методи read-only.
+    """
+
+    def __init__(self, conn: sqlite3.Connection) -> None:
+        self.conn = conn
+
+    def get_hero_item_build(
+        self,
+        hero_id: int,
+        win_only: bool = False,
+        limit: int = 6,
+    ) -> list[ItemBuildEntry]:
+        """Повертає топ предметів для героя відсортованих за pickrate DESC.
+
+        hero_id: OpenDota hero id.
+        win_only: якщо True — рахує тільки матчі де гравець переміг.
+        limit: максимум записів (default 6 = повний item build).
+
+        Агрегація: рахує унікальні матчі де герой мав item (не кількість слотів).
+        Це коректно бо герой не може мати два однакових item в різних слотах
+        у кінці матчу (OpenDota snapshot фінального стану).
+        """
+        win_filter = "AND mp.win = 1" if win_only else ""
+
+        # Підзапит: total_matches (або total_wins) для нормалізації pickrate
+        total_sql = f"""
+            SELECT COUNT(DISTINCT mp.match_id)
+            FROM match_players mp
+            WHERE mp.hero_id = ? {win_filter}
+        """
+        total_row = self.conn.execute(total_sql, (hero_id,)).fetchone()
+        total = int(total_row[0]) if total_row else 0
+
+        if total == 0:
+            return []
+
+        rows = self.conn.execute(
+            f"""
+            SELECT
+                mpi.item_id,
+                i.localized_name,
+                COUNT(DISTINCT mpi.match_id) AS times_bought
+            FROM match_player_items mpi
+            JOIN match_players mp
+                ON mp.match_id = mpi.match_id
+               AND mp.player_slot = mpi.player_slot
+            LEFT JOIN items i ON i.id = mpi.item_id
+            WHERE mp.hero_id = ? {win_filter}
+            GROUP BY mpi.item_id
+            ORDER BY times_bought DESC
+            LIMIT ?
+            """,
+            (hero_id, limit),
+        ).fetchall()
+
+        # win_pickrate завжди відносно wins, незалежно від win_only
+        total_wins_row = self.conn.execute(
+            "SELECT COUNT(DISTINCT match_id) FROM match_players WHERE hero_id = ? AND win = 1",
+            (hero_id,),
+        ).fetchone()
+        total_wins = int(total_wins_row[0]) if total_wins_row else 0
+
+        result = []
+        for row in rows:
+            times = int(row["times_bought"])
+
+            # win_pickrate: скільки разів item зустрічається у виграних матчах
+            win_row = self.conn.execute(
+                """
+                SELECT COUNT(DISTINCT mpi.match_id)
+                FROM match_player_items mpi
+                JOIN match_players mp
+                    ON mp.match_id = mpi.match_id
+                   AND mp.player_slot = mpi.player_slot
+                WHERE mp.hero_id = ? AND mpi.item_id = ? AND mp.win = 1
+                """,
+                (hero_id, row["item_id"]),
+            ).fetchone()
+            win_times = int(win_row[0]) if win_row else 0
+
+            result.append(ItemBuildEntry(
+                item_id=row["item_id"],
+                item_name=row["localized_name"],
+                times_bought=times,
+                pickrate=round(times / total, 4),
+                win_pickrate=round(win_times / total_wins, 4) if total_wins > 0 else 0.0,
+            ))
+
+        return result
