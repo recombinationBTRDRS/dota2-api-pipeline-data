@@ -53,8 +53,9 @@ def sync_items(provider: ItemsProvider | None = None) -> int:
 
     raw_items: dict[str, Any] = client.get_items()
     items = parse_items(raw_items)
+    db_items = [_to_db(i) for i in items]  # ← FIX: map Item → ItemDB before upsert
 
     with UnitOfWork() as uow:
         repo = ItemRepository(uow.conn)
-        repo.upsert_batch(items)
-        return len(items)
+        repo.upsert_batch(db_items)
+        return len(db_items)

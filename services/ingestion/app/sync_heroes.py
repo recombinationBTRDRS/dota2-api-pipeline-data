@@ -59,8 +59,9 @@ def sync_heroes(provider: HeroesProvider | None = None) -> int:
 
     raw_heroes: list[dict[str, Any]] = client.get_heroes()
     heroes = parse_heroes(raw_heroes)
+    db_heroes = [_to_db(h) for h in heroes]  # ← FIX: map Hero → HeroDB before upsert
 
     with UnitOfWork() as uow:
         repo = HeroRepository(uow.conn)
-        repo.upsert_batch(heroes)
-        return len(heroes)
+        repo.upsert_batch(db_heroes)
+        return len(db_heroes)

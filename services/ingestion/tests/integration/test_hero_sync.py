@@ -10,7 +10,6 @@ from services.ingestion.db.models import HeroDB
 from services.ingestion.db.repositories import HeroRepository
 from services.ingestion.db.sqlite import init_db
 from services.ingestion.db.unit_of_work import UnitOfWork
-from services.ingestion.domains.heroes.dtos import Hero
 
 
 @pytest.fixture()
@@ -118,11 +117,12 @@ def test_sync_heroes_updates_existing(db) -> None:
     """sync_heroes() оновлює дані якщо герой вже існує."""
     sync_heroes(provider=FakeHeroesClient())
 
+    # FIX: Protocol HeroesProvider.get_heroes() → list[dict[str, Any]]
+    # parse_hero() всередині sync_heroes вміє обробляти неповні dict-и
     class UpdatedClient:
-        def get_heroes(self) -> list[Hero]:
-            return [Hero(id=1, name="npc_dota_hero_antimage",
-                         localized_name="Anti-Mage (Updated)",
-                         primary_attr="agi", attack_type="Melee")]
+        def get_heroes(self) -> list[dict[str, Any]]:
+            return [{"id": 1, "name": "npc_dota_hero_antimage",
+                     "localized_name": "Anti-Mage (Updated)"}]
 
     sync_heroes(provider=UpdatedClient())
 
