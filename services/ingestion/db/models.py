@@ -70,3 +70,23 @@ class ItemDB:
     secret_shop: bool
     side_shop: bool
     recipe: bool
+
+
+@dataclass(slots=True)
+class HeroRoleScoreDB:
+    """DB-представлення бальної оцінки героя по позиціях (Task 3.3).
+
+    hero_id = OpenDota hero id (FK → heroes.id).
+    pos1..pos5: бали 1–5 по кожній позиції (1=carry..5=hard_support).
+    flex_score: кількість позицій з балом >= 3 (pre-computed при sync).
+    primary_pos: позиція з найвищим балом 1–5 (pre-computed при sync).
+    """
+
+    hero_id: int
+    pos1: int
+    pos2: int
+    pos3: int
+    pos4: int
+    pos5: int
+    flex_score: int
+    primary_pos: int

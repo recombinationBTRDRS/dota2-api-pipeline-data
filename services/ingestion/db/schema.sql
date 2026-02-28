@@ -56,15 +56,35 @@ CREATE TABLE IF NOT EXISTS heroes (
 );
 
 -- Предмети Dota 2 (Task 3.2).
--- id = OpenDota item id (не AUTOINCREMENT).
--- cost: ціна в золоті (0 для рецептів і базових предметів).
--- secret_shop, side_shop, recipe — булеві прапори.
 CREATE TABLE IF NOT EXISTS items (
     id          INTEGER PRIMARY KEY,
-    name        TEXT    NOT NULL UNIQUE,  -- internal key: 'blink'
-    localized_name TEXT NOT NULL,         -- display name: 'Blink Dagger'
+    name        TEXT    NOT NULL UNIQUE,
+    localized_name TEXT NOT NULL,
     cost        INTEGER NOT NULL DEFAULT 0,
     secret_shop INTEGER NOT NULL DEFAULT 0 CHECK(secret_shop IN (0, 1)),
     side_shop   INTEGER NOT NULL DEFAULT 0 CHECK(side_shop IN (0, 1)),
     recipe      INTEGER NOT NULL DEFAULT 0 CHECK(recipe IN (0, 1))
 );
+
+-- Бальна оцінка героїв по позиціях (Task 3.3).
+-- hero_id PK + FK → heroes.id ON DELETE CASCADE.
+-- pos1-5: бали 1-5 (1=carry, 2=mid, 3=offlane, 4=support, 5=hard_support).
+-- flex_score: кількість позицій з балом >= 3 (pre-computed при sync).
+-- primary_pos: позиція з найвищим балом (pre-computed при sync).
+-- Джерело: domains/heroes/meta.py + providers/opendota/hero_id_map.py
+CREATE TABLE IF NOT EXISTS hero_role_scores (
+    hero_id     INTEGER PRIMARY KEY,
+    pos1        INTEGER NOT NULL CHECK(pos1 BETWEEN 1 AND 5),
+    pos2        INTEGER NOT NULL CHECK(pos2 BETWEEN 1 AND 5),
+    pos3        INTEGER NOT NULL CHECK(pos3 BETWEEN 1 AND 5),
+    pos4        INTEGER NOT NULL CHECK(pos4 BETWEEN 1 AND 5),
+    pos5        INTEGER NOT NULL CHECK(pos5 BETWEEN 1 AND 5),
+    flex_score  INTEGER NOT NULL CHECK(flex_score BETWEEN 0 AND 5),
+    primary_pos INTEGER NOT NULL CHECK(primary_pos BETWEEN 1 AND 5),
+    FOREIGN KEY (hero_id) REFERENCES heroes(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_hero_role_scores_primary_pos
+    ON hero_role_scores (primary_pos);
+CREATE INDEX IF NOT EXISTS idx_hero_role_scores_flex
+    ON hero_role_scores (flex_score);

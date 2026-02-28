@@ -1,7 +1,14 @@
 # services/ingestion/db/repositories.py
 import sqlite3
 
-from services.ingestion.db.models import HeroDB, IngestionLogDB, ItemDB, MatchPlayerDB, PlayerDB
+from services.ingestion.db.models import (
+    HeroDB,
+    HeroRoleScoreDB,
+    IngestionLogDB,
+    ItemDB,
+    MatchPlayerDB,
+    PlayerDB,
+)
 from services.ingestion.db.models import MatchDB as DBMatch
 
 _MAX_ERROR_LEN = 500
@@ -195,13 +202,10 @@ class HeroRepository:
 
 
 class ItemRepository:
-    """Репозиторій для таблиці items (Task 3.2)."""
-
     def __init__(self, conn: sqlite3.Connection) -> None:
         self.conn = conn
 
     def upsert_batch(self, items: list[ItemDB]) -> None:
-        """Ідемпотентне збереження списку предметів."""
         self.conn.executemany(
             """
             INSERT INTO items (id, name, localized_name, cost, secret_shop, side_shop, recipe)
@@ -214,15 +218,11 @@ class ItemRepository:
                 side_shop      = excluded.side_shop,
                 recipe         = excluded.recipe
             """,
-            [
-                (i.id, i.name, i.localized_name, i.cost,
-                 int(i.secret_shop), int(i.side_shop), int(i.recipe))
-                for i in items
-            ],
+            [(i.id, i.name, i.localized_name, i.cost,
+              int(i.secret_shop), int(i.side_shop), int(i.recipe)) for i in items],
         )
 
     def get(self, item_id: int) -> ItemDB | None:
-        """Повертає ItemDB за id або None."""
         row = self.conn.execute(
             "SELECT id, name, localized_name, cost, secret_shop, side_shop, recipe "
             "FROM items WHERE id = ?",
@@ -231,26 +231,101 @@ class ItemRepository:
         if row is None:
             return None
         return ItemDB(
-            id=row["id"],
-            name=row["name"],
-            localized_name=row["localized_name"],
-            cost=row["cost"],
-            secret_shop=bool(row["secret_shop"]),
-            side_shop=bool(row["side_shop"]),
-            recipe=bool(row["recipe"]),
+            id=row["id"], name=row["name"], localized_name=row["localized_name"],
+            cost=row["cost"], secret_shop=bool(row["secret_shop"]),
+            side_shop=bool(row["side_shop"]), recipe=bool(row["recipe"]),
         )
 
     def get_all(self) -> list[ItemDB]:
-        """Повертає всі предмети з таблиці."""
         rows = self.conn.execute(
             "SELECT id, name, localized_name, cost, secret_shop, side_shop, recipe "
             "FROM items ORDER BY id"
         ).fetchall()
         return [
-            ItemDB(
-                id=r["id"], name=r["name"], localized_name=r["localized_name"],
-                cost=r["cost"], secret_shop=bool(r["secret_shop"]),
-                side_shop=bool(r["side_shop"]), recipe=bool(r["recipe"]),
-            )
+            ItemDB(id=r["id"], name=r["name"], localized_name=r["localized_name"],
+                   cost=r["cost"], secret_shop=bool(r["secret_shop"]),
+                   side_shop=bool(r["side_shop"]), recipe=bool(r["recipe"]))
             for r in rows
         ]
+
+
+class HeroRoleScoreRepository:
+    """Репозиторій для таблиці hero_role_scores (Task 3.3).
+
+    Зберігає pre-computed бали по позиціях для кожного героя.
+    Дозволяє SQL-запити: get по hero_id, фільтр по позиції/балу, фільтр по flex.
+    """
+
+    def __init__(self, conn: sqlite3.Connection) -> None:
+        self.conn = conn
+
+    def upsert_batch(self, scores: list[HeroRoleScoreDB]) -> None:
+        """Ідемпотентне збереження списку score-записів."""
+        self.conn.executemany(
+            """
+            INSERT INTO hero_role_scores
+                (hero_id, pos1, pos2, pos3, pos4, pos5, flex_score, primary_pos)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(hero_id) DO UPDATE SET
+                pos1        = excluded.pos1,
+                pos2        = excluded.pos2,
+                pos3        = excluded.pos3,
+                pos4        = excluded.pos4,
+                pos5        = excluded.pos5,
+                flex_score  = excluded.flex_score,
+                primary_pos = excluded.primary_pos
+            """,
+            [(s.hero_id, s.pos1, s.pos2, s.pos3, s.pos4, s.pos5,
+              s.flex_score, s.primary_pos) for s in scores],
+        )
+
+    def get(self, hero_id: int) -> HeroRoleScoreDB | None:
+        """Повертає HeroRoleScoreDB за hero_id або None."""
+        row = self.conn.execute(
+            "SELECT hero_id, pos1, pos2, pos3, pos4, pos5, flex_score, primary_pos "
+            "FROM hero_role_scores WHERE hero_id = ?",
+            (hero_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        return HeroRoleScoreDB(
+            hero_id=row["hero_id"],
+            pos1=row["pos1"], pos2=row["pos2"], pos3=row["pos3"],
+            pos4=row["pos4"], pos5=row["pos5"],
+            flex_score=row["flex_score"], primary_pos=row["primary_pos"],
+        )
+
+    def get_by_pos(self, pos: int, min_score: int = 4) -> list[HeroRoleScoreDB]:
+        """Повертає героїв з балом >= min_score на позиції pos (1–5).
+
+        Корисно для Epic 4/5: "всі сильні офлейнери" → get_by_pos(3, min_score=4).
+        """
+        col = f"pos{pos}"
+        rows = self.conn.execute(
+            f"SELECT hero_id, pos1, pos2, pos3, pos4, pos5, flex_score, primary_pos "
+            f"FROM hero_role_scores WHERE {col} >= ? ORDER BY {col} DESC",
+            (min_score,),
+        ).fetchall()
+        return [HeroRoleScoreDB(
+            hero_id=r["hero_id"],
+            pos1=r["pos1"], pos2=r["pos2"], pos3=r["pos3"],
+            pos4=r["pos4"], pos5=r["pos5"],
+            flex_score=r["flex_score"], primary_pos=r["primary_pos"],
+        ) for r in rows]
+
+    def get_flex_heroes(self, min_flex: int = 4) -> list[HeroRoleScoreDB]:
+        """Повертає героїв з flex_score >= min_flex, відсортованих за flex DESC.
+
+        Корисно для рекомендацій: "знайди flex-героя якого можна поставити на 2-3 позиції".
+        """
+        rows = self.conn.execute(
+            "SELECT hero_id, pos1, pos2, pos3, pos4, pos5, flex_score, primary_pos "
+            "FROM hero_role_scores WHERE flex_score >= ? ORDER BY flex_score DESC",
+            (min_flex,),
+        ).fetchall()
+        return [HeroRoleScoreDB(
+            hero_id=r["hero_id"],
+            pos1=r["pos1"], pos2=r["pos2"], pos3=r["pos3"],
+            pos4=r["pos4"], pos5=r["pos5"],
+            flex_score=r["flex_score"], primary_pos=r["primary_pos"],
+        ) for r in rows]
