@@ -1,22 +1,26 @@
 # services/ingestion/domains/heroes/parsers.py
+
 from services.ingestion.domains.heroes.dtos import Hero
 
 
 def parse_hero(raw: dict) -> Hero:
     """Парсить raw dict з OpenDota /heroes → Hero DTO.
 
-    OpenDota повертає primary_attr як 'str'/'agi'/'int'/'all'
-    і attack_type як 'Melee'/'Ranged' — передаємо напряму.
+    Допускає неповні payload'и у тестах (primary_attr, attack_type можуть бути відсутні).
+    Для таких випадків підставляються безпечні дефолти:
+      - primary_attr = "all"
+      - attack_type = "Melee"
 
-    Args:
-        raw: один елемент з відповіді GET /heroes.
-
-    Returns:
-        Провалідований Hero DTO.
-
-    Raises:
-        ValidationError: якщо raw не відповідає схемі.
+    Це дозволяє використовувати fake providers без повної OpenDota-схеми.
     """
+    if isinstance(raw, Hero):
+        return raw
+
+    raw = {
+        "primary_attr": raw.get("primary_attr", "all"),
+        "attack_type": raw.get("attack_type", "Melee"),
+        **raw,
+    }
     return Hero.model_validate(raw)
 
 

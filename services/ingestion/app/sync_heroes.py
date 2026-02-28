@@ -9,11 +9,13 @@
     sync_heroes(provider=FakeHeroesClient())
 """
 import logging
+from typing import Any
 
 from services.ingestion.db.models import HeroDB
 from services.ingestion.db.repositories import HeroRepository
 from services.ingestion.db.unit_of_work import UnitOfWork
 from services.ingestion.domains.heroes.dtos import Hero
+from services.ingestion.domains.heroes.parsers import parse_heroes
 from services.ingestion.providers.opendota.heroes_client import (
     HeroesProvider,
     OpenDotaHeroesClient,
@@ -34,29 +36,31 @@ def _to_db(hero: Hero) -> HeroDB:
 
 
 def sync_heroes(provider: HeroesProvider | None = None) -> int:
-    """Синхронізує героїв з OpenDota API до локальної БД.
+    """
+    Synchronize heroes from OpenDota into the local database.
 
-    Ідемпотентний — повторний виклик не дублює дані.
-    Використовує batch upsert для ефективності.
+    The provider returns raw API payload (list[dict[str, Any]]).
+    Parsing and normalization into Hero DTOs happens in the domain layer.
+
+    The function is idempotent: repeated calls update existing rows
+    instead of inserting duplicates.
+
+    Fake providers used in tests may return partial hero payloads
+    (without primary_attr / attack_type) — these are normalized in the parser.
 
     Args:
-        provider: провайдер для завантаження героїв.
-                  Default: OpenDotaHeroesClient (реальний HTTP).
+        provider: Optional HeroesProvider for dependency injection (tests).
+                  Defaults to OpenDotaHeroesClient.
 
     Returns:
-        Кількість збережених/оновлених героїв.
-
-    Raises:
-        RuntimeError: якщо API недоступний.
-        ValidationError: якщо відповідь не відповідає схемі.
+        Number of heroes upserted into the database.
     """
     client = provider or OpenDotaHeroesClient()
 
-    heroes = client.get_heroes()
-    db_heroes = [_to_db(h) for h in heroes]
+    raw_heroes: list[dict[str, Any]] = client.get_heroes()
+    heroes = parse_heroes(raw_heroes)
 
     with UnitOfWork() as uow:
-        HeroRepository(uow.conn).upsert_batch(db_heroes)
-
-    logger.info("sync_heroes: saved %d heroes", len(db_heroes))
-    return len(db_heroes)
+        repo = HeroRepository(uow.conn)
+        repo.upsert_batch(heroes)
+        return len(heroes)

@@ -1,11 +1,13 @@
 # services/ingestion/app/sync_items.py
 """Item sync orchestration (Task 3.2)."""
 import logging
+from typing import Any
 
 from services.ingestion.db.models import ItemDB
 from services.ingestion.db.repositories import ItemRepository
 from services.ingestion.db.unit_of_work import UnitOfWork
 from services.ingestion.domains.items.dtos import Item
+from services.ingestion.domains.items.parsers import parse_items
 from services.ingestion.providers.opendota.items_client import (
     ItemsProvider,
     OpenDotaItemsClient,
@@ -28,24 +30,31 @@ def _to_db(item: Item) -> ItemDB:
 
 
 def sync_items(provider: ItemsProvider | None = None) -> int:
-    """Синхронізує предмети з OpenDota API до локальної БД.
+    """
+    Synchronize items from OpenDota into the local database.
 
-    Ідемпотентний — повторний виклик не дублює дані.
+    The provider returns raw API payload (dict[str, Any]).
+    Parsing and normalization into Item DTOs happens in the domain layer.
+
+    The function is idempotent: repeated calls update existing rows
+    instead of inserting duplicates.
+
+    Fake providers used in tests may return a reduced schema —
+    parsing is handled in the domain layer.
 
     Args:
-        provider: провайдер для завантаження предметів.
-                  Default: OpenDotaItemsClient (реальний HTTP).
+        provider: Optional ItemsProvider for dependency injection (tests).
+                  Defaults to OpenDotaItemsClient.
 
     Returns:
-        Кількість збережених/оновлених предметів.
+        Number of items upserted into the database.
     """
     client = provider or OpenDotaItemsClient()
 
-    items = client.get_items()
-    db_items = [_to_db(i) for i in items]
+    raw_items: dict[str, Any] = client.get_items()
+    items = parse_items(raw_items)
 
     with UnitOfWork() as uow:
-        ItemRepository(uow.conn).upsert_batch(db_items)
-
-    logger.info("sync_items: saved %d items", len(db_items))
-    return len(db_items)
+        repo = ItemRepository(uow.conn)
+        repo.upsert_batch(items)
+        return len(items)

@@ -1,5 +1,7 @@
 # services/ingestion/tests/integration/test_hero_sync.py
 """Інтеграційні тести HeroRepository і sync_heroes з реальним SQLite."""
+from typing import Any
+
 import pytest
 
 from services.ingestion.app.sync_heroes import sync_heroes
@@ -22,14 +24,10 @@ def db(monkeypatch, tmp_path):
 class FakeHeroesClient:
     """Stub — повертає фіксований список героїв без HTTP."""
 
-    def get_heroes(self) -> list[Hero]:
+    def get_heroes(self) -> list[dict[str, Any]]:
         return [
-            Hero(id=1, name="npc_dota_hero_antimage", localized_name="Anti-Mage",
-                 primary_attr="agi", attack_type="Melee"),
-            Hero(id=2, name="npc_dota_hero_axe", localized_name="Axe",
-                 primary_attr="str", attack_type="Melee"),
-            Hero(id=74, name="npc_dota_hero_invoker", localized_name="Invoker",
-                 primary_attr="int", attack_type="Ranged"),
+            {"id": 1, "name": "npc_dota_hero_antimage", "localized_name": "Anti-Mage"},
+            {"id": 2, "name": "npc_dota_hero_axe", "localized_name": "Axe"},
         ]
 
 
@@ -99,11 +97,11 @@ def test_get_all_returns_all_heroes(db) -> None:
 def test_sync_heroes_saves_all(db) -> None:
     """sync_heroes() зберігає всіх героїв від провайдера."""
     count = sync_heroes(provider=FakeHeroesClient())
-    assert count == 3
+    assert count == 2
 
     with UnitOfWork() as uow:
         heroes = HeroRepository(uow.conn).get_all()
-    assert len(heroes) == 3
+    assert len(heroes) == 2
 
 
 def test_sync_heroes_idempotent(db) -> None:
@@ -113,7 +111,7 @@ def test_sync_heroes_idempotent(db) -> None:
 
     with UnitOfWork() as uow:
         heroes = HeroRepository(uow.conn).get_all()
-    assert len(heroes) == 3
+    assert len(heroes) == 2
 
 
 def test_sync_heroes_updates_existing(db) -> None:

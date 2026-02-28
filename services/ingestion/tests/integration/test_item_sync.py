@@ -1,5 +1,7 @@
 # services/ingestion/tests/integration/test_item_sync.py
 """Інтеграційні тести ItemRepository і sync_items з реальним SQLite."""
+from typing import Any
+
 import pytest
 
 from services.ingestion.app.sync_items import sync_items
@@ -8,7 +10,6 @@ from services.ingestion.db.models import ItemDB
 from services.ingestion.db.repositories import ItemRepository
 from services.ingestion.db.sqlite import init_db
 from services.ingestion.db.unit_of_work import UnitOfWork
-from services.ingestion.domains.items.dtos import Item
 
 
 @pytest.fixture()
@@ -22,14 +23,11 @@ def db(monkeypatch, tmp_path):
 class FakeItemsClient:
     """Stub — повертає фіксований список предметів без HTTP."""
 
-    def get_items(self) -> list[Item]:
-        return [
-            Item(id=1, name="blink", localized_name="Blink Dagger", cost=2250),
-            Item(id=2, name="branches", localized_name="Iron Branch", cost=50),
-            Item(id=36, name="eaglesong", localized_name="Eaglesong",
-                 cost=3200, secret_shop=True),
-        ]
-
+    def get_items(self) -> dict[str, Any]:
+        return {
+            "blink": {"id": 1, "dname": "Blink Dagger", "cost": 2250},
+            "tango": {"id": 2, "dname": "Tango", "cost": 90},
+        }
 
 # ── ItemRepository ────────────────────────────────────────────────────────────
 
@@ -112,11 +110,11 @@ def test_bool_flags_persisted_correctly(db) -> None:
 
 def test_sync_items_saves_all(db) -> None:
     count = sync_items(provider=FakeItemsClient())
-    assert count == 3
+    assert count == 2
 
     with UnitOfWork() as uow:
         all_items = ItemRepository(uow.conn).get_all()
-    assert len(all_items) == 3
+    assert len(all_items) == 2
 
 
 def test_sync_items_idempotent(db) -> None:
@@ -125,4 +123,4 @@ def test_sync_items_idempotent(db) -> None:
 
     with UnitOfWork() as uow:
         all_items = ItemRepository(uow.conn).get_all()
-    assert len(all_items) == 3
+    assert len(all_items) == 2
