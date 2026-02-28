@@ -710,3 +710,190 @@ class ItemBuildRepository:
             ))
 
         return result
+
+
+# Match phase thresholds (seconds)
+_EARLY_MAX = 1800   # ≤ 30 хвилин
+_MID_MAX = 3000     # 30–50 хвилин
+# late = > 50 хвилин
+
+
+def _duration_to_phase(duration: int) -> str:
+    if duration <= _EARLY_MAX:
+        return "early"
+    if duration <= _MID_MAX:
+        return "mid"
+    return "late"
+
+
+@dataclass(slots=True)
+class MatchPhaseStatsRow:
+    """Статистика героя в конкретній фазі гри (Task 4.4a).
+
+    phase: 'early' | 'mid' | 'late' — визначається через matches.duration.
+    Це db-layer dataclass, не domain DTO.
+    """
+
+    hero_id: int
+    phase: str              # 'early' | 'mid' | 'late'
+    matches_played: int
+    wins: int
+    winrate: float          # округлено 4 знаки
+    avg_gpm: float
+    avg_kills: float
+
+
+@dataclass(slots=True)
+class MetaHeroRow:
+    """Рядок meta snapshot — герой + позиція + агрегована meta_score (Task 4.4b).
+
+    primary_pos: int 1–5 (db-шар не знає про Role enum).
+    meta_score: winrate * pickrate * 100, округлено 2 знаки.
+    pickrate: matches_played / total_matches_in_sample, округлено 4 знаки.
+    """
+
+    hero_id: int
+    hero_name: str | None
+    primary_pos: int
+    matches_played: int
+    wins: int
+    winrate: float
+    pickrate: float
+    meta_score: float
+
+
+class MatchTimelineRepository:
+    """Аналітика матчів по фазах гри і meta snapshot (Task 4.4).
+
+    4.4a — get_hero_phase_stats: winrate/gpm по early/mid/late для героя.
+    4.4b — get_meta_snapshot: топ героїв по позиціях за meta_score.
+
+    match phase визначається через matches.duration:
+        early  ≤ 1800s (≤ 30 хв)
+        mid    1801–3000s (30–50 хв)
+        late   > 3000s (> 50 хв)
+
+    Всі методи read-only.
+    """
+
+    def __init__(self, conn: sqlite3.Connection) -> None:
+        self.conn = conn
+
+    def get_hero_phase_stats(self, hero_id: int) -> list[MatchPhaseStatsRow]:
+        """Повертає статистику героя по фазах гри (до 3 записів).
+
+        Фази без матчів не повертаються.
+        Порядок: early → mid → late.
+        """
+        rows = self.conn.execute(
+            """
+            SELECT
+                mp.hero_id,
+                CASE
+                    WHEN m.duration <= 1800 THEN 'early'
+                    WHEN m.duration <= 3000 THEN 'mid'
+                    ELSE 'late'
+                END AS phase,
+                COUNT(*)        AS matches_played,
+                SUM(mp.win)     AS wins,
+                AVG(mp.gpm)     AS avg_gpm,
+                AVG(mp.kills)   AS avg_kills
+            FROM match_players mp
+            JOIN matches m ON m.id = mp.match_id
+            WHERE mp.hero_id = ?
+            GROUP BY phase
+            ORDER BY
+                CASE phase
+                    WHEN 'early' THEN 1
+                    WHEN 'mid'   THEN 2
+                    ELSE              3
+                END
+            """,
+            (hero_id,),
+        ).fetchall()
+
+        result = []
+        for row in rows:
+            matches = int(row["matches_played"])
+            wins = int(row["wins"])
+            result.append(MatchPhaseStatsRow(
+                hero_id=hero_id,
+                phase=row["phase"],
+                matches_played=matches,
+                wins=wins,
+                winrate=round(wins / matches, 4) if matches > 0 else 0.0,
+                avg_gpm=round(float(row["avg_gpm"]), 2),
+                avg_kills=round(float(row["avg_kills"]), 2),
+            ))
+        return result
+
+    def get_meta_snapshot(
+        self,
+        primary_pos: int | None = None,
+        limit: int = 10,
+    ) -> list[MetaHeroRow]:
+        """Повертає топ героїв за meta_score DESC.
+
+        meta_score = winrate * pickrate * 100, округлено 2 знаки.
+        pickrate = matches_played / total_matches_in_sample.
+
+        primary_pos: якщо None — всі позиції; інакше фільтр по конкретній позиції.
+        Герої без hero_role_scores запису виключаються (INNER JOIN).
+
+        Порожній список якщо нема матчів.
+        """
+        if primary_pos is not None and primary_pos not in (1, 2, 3, 4, 5):
+            raise ValueError(f"primary_pos must be 1-5 or None, got {primary_pos}")
+
+        # total_matches — загальна кількість матчів у вибірці для pickrate
+        total_row = self.conn.execute(
+            "SELECT COUNT(DISTINCT match_id) FROM match_players"
+        ).fetchone()
+        total = int(total_row[0]) if total_row else 0
+
+        if total == 0:
+            return []
+
+        pos_filter = "AND hrs.primary_pos = ?" if primary_pos is not None else ""
+        params: tuple[int, ...] = (primary_pos, limit) if primary_pos is not None else (limit,)
+
+        rows = self.conn.execute(
+            f"""
+            SELECT
+                mp.hero_id,
+                h.localized_name,
+                hrs.primary_pos,
+                COUNT(*)        AS matches_played,
+                SUM(mp.win)     AS wins
+            FROM match_players mp
+            JOIN heroes h ON h.id = mp.hero_id
+            JOIN hero_role_scores hrs ON hrs.hero_id = mp.hero_id
+            WHERE 1=1 {pos_filter}
+            GROUP BY mp.hero_id
+            ORDER BY
+                (SUM(mp.win) * 1.0 / COUNT(*))
+                * (COUNT(*) * 1.0 / {total})
+                * 100 DESC
+            LIMIT ?
+            """,
+            params,
+        ).fetchall()
+
+        result = []
+        for row in rows:
+            matches = int(row["matches_played"])
+            wins = int(row["wins"])
+            winrate = round(wins / matches, 4) if matches > 0 else 0.0
+            pickrate = round(matches / total, 4)
+            meta_score = round(winrate * pickrate * 100, 2)
+            result.append(MetaHeroRow(
+                hero_id=row["hero_id"],
+                hero_name=row["localized_name"],
+                primary_pos=int(row["primary_pos"]),
+                matches_played=matches,
+                wins=wins,
+                winrate=winrate,
+                pickrate=pickrate,
+                meta_score=meta_score,
+            ))
+        return result
