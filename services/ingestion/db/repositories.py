@@ -350,7 +350,7 @@ class HeroRoleScoreRepository:
         ) for r in rows]
 
 
-# ── Task 4.1: Hero Stats ──────────────────────────────────────────────────────
+# ── Task 4.1 + 4.2: Hero Stats ────────────────────────────────────────────────
 
 @dataclass(slots=True)
 class HeroStatsRow:
@@ -373,6 +373,27 @@ class HeroStatsRow:
     avg_xpm: float
 
 
+@dataclass(slots=True)
+class HeroRoleStatsRow:
+    """Агрегована статистика героя на конкретній позиції (Task 4.2).
+
+    primary_pos: int 1–5 (db-шар не знає про Role enum).
+    Маппінг primary_pos → Role виконується в app-шарі.
+    """
+
+    hero_id: int
+    hero_name: str | None
+    primary_pos: int           # 1=carry, 2=mid, 3=offlane, 4=support, 5=hard_support
+    matches_played: int
+    wins: int
+    losses: int
+    winrate: float
+    avg_kills: float
+    avg_deaths: float
+    avg_assists: float
+    avg_gpm: float
+
+
 def _build_hero_stats_row(row: sqlite3.Row) -> HeroStatsRow:
     matches = int(row["matches_played"])
     wins = int(row["wins"])
@@ -391,6 +412,24 @@ def _build_hero_stats_row(row: sqlite3.Row) -> HeroStatsRow:
     )
 
 
+def _build_hero_role_stats_row(row: sqlite3.Row) -> HeroRoleStatsRow:
+    matches = int(row["matches_played"])
+    wins = int(row["wins"])
+    return HeroRoleStatsRow(
+        hero_id=row["hero_id"],
+        hero_name=row["localized_name"],
+        primary_pos=int(row["primary_pos"]),
+        matches_played=matches,
+        wins=wins,
+        losses=matches - wins,
+        winrate=round(wins / matches, 4) if matches > 0 else 0.0,
+        avg_kills=round(float(row["avg_kills"]), 2),
+        avg_deaths=round(float(row["avg_deaths"]), 2),
+        avg_assists=round(float(row["avg_assists"]), 2),
+        avg_gpm=round(float(row["avg_gpm"]), 2),
+    )
+
+
 _HERO_STATS_SQL = """
     SELECT
         mp.hero_id,
@@ -406,17 +445,43 @@ _HERO_STATS_SQL = """
     LEFT JOIN heroes h ON h.id = mp.hero_id
 """
 
+# SQL base для role-фільтрованих запитів (Task 4.2).
+# JOIN з hero_role_scores дає primary_pos — героїв без запису не включаємо (INNER JOIN).
+_HERO_ROLE_STATS_SQL = """
+    SELECT
+        mp.hero_id,
+        h.localized_name,
+        hrs.primary_pos,
+        COUNT(*)        AS matches_played,
+        SUM(mp.win)     AS wins,
+        AVG(mp.kills)   AS avg_kills,
+        AVG(mp.deaths)  AS avg_deaths,
+        AVG(mp.assists) AS avg_assists,
+        AVG(mp.gpm)     AS avg_gpm
+    FROM match_players mp
+    JOIN heroes h ON h.id = mp.hero_id
+    JOIN hero_role_scores hrs ON hrs.hero_id = mp.hero_id
+"""
+
 
 class HeroStatsRepository:
-    """Аналітичний репозиторій: winrate / pickrate / avg KDA по героях (Task 4.1).
+    """Аналітичний репозиторій: winrate / pickrate / avg KDA по героях (Task 4.1, 4.2).
 
-    Агрегує дані з match_players + heroes.
+    Task 4.1 — загальна статистика по hero_id.
+    Task 4.2 — статистика з фільтром по primary_pos (позиції).
+
+    Підхід для Task 4.2: використовуємо hero_role_scores.primary_pos як proxy
+    для «герой грав на своїй основній позиції» — без ML, чистий SQL JOIN.
+    Герої без запису в hero_role_scores виключаються з role-filtered запитів.
+
     Всі методи read-only — не змінюють DB.
-    Повертає HeroStatsRow (db-layer dataclass), не domain DTO.
+    Повертає dataclass rows (db-layer), не domain DTOs.
     """
 
     def __init__(self, conn: sqlite3.Connection) -> None:
         self.conn = conn
+
+    # ── Task 4.1: загальна статистика ─────────────────────────────────────────
 
     def get_hero_stats(self, hero_id: int) -> HeroStatsRow | None:
         """Повертає агреговану статистику по одному герою або None якщо немає матчів."""
@@ -427,10 +492,7 @@ class HeroStatsRepository:
         return _build_hero_stats_row(row) if row is not None else None
 
     def get_all_heroes_stats(self, min_matches: int = 10) -> list[HeroStatsRow]:
-        """Повертає статистику всіх героїв з кількістю матчів >= min_matches.
-
-        Відсортовано за hero_id для детермінованого порядку.
-        """
+        """Повертає статистику всіх героїв з кількістю матчів >= min_matches."""
         rows = self.conn.execute(
             _HERO_STATS_SQL + """
             GROUP BY mp.hero_id
@@ -446,10 +508,7 @@ class HeroStatsRepository:
         limit: int = 10,
         min_matches: int = 20,
     ) -> list[HeroStatsRow]:
-        """Повертає топ героїв за winrate DESC.
-
-        min_matches фільтрує героїв з малою вибіркою (статистично ненадійні).
-        """
+        """Повертає топ героїв за winrate DESC з фільтром min_matches."""
         rows = self.conn.execute(
             _HERO_STATS_SQL + """
             GROUP BY mp.hero_id
@@ -460,3 +519,57 @@ class HeroStatsRepository:
             (min_matches, limit),
         ).fetchall()
         return [_build_hero_stats_row(r) for r in rows]
+
+    # ── Task 4.2: статистика по позиції ───────────────────────────────────────
+
+    def get_hero_stats_by_role(
+        self,
+        hero_id: int,
+        primary_pos: int,
+    ) -> HeroRoleStatsRow | None:
+        """Повертає статистику конкретного героя на конкретній позиції.
+
+        primary_pos: int 1–5 (caller конвертує Role → int якщо потрібно).
+        None якщо герой не має запису в hero_role_scores або немає матчів.
+        """
+        if primary_pos not in (1, 2, 3, 4, 5):
+            raise ValueError(f"primary_pos must be 1-5, got {primary_pos}")
+
+        row = self.conn.execute(
+            _HERO_ROLE_STATS_SQL + """
+            WHERE mp.hero_id = ? AND hrs.primary_pos = ?
+            GROUP BY mp.hero_id
+            """,
+            (hero_id, primary_pos),
+        ).fetchone()
+        return _build_hero_role_stats_row(row) if row is not None else None
+
+    def get_role_leaderboard(
+        self,
+        primary_pos: int,
+        min_matches: int = 10,
+        limit: int = 20,
+    ) -> list[HeroRoleStatsRow]:
+        """Повертає топ героїв на позиції primary_pos за winrate DESC.
+
+        Включає тільки героїв у яких primary_pos в hero_role_scores = вказаному.
+        Тобто «природні» герої цієї позиції, не всі хто там грав.
+
+        primary_pos: int 1–5.
+        min_matches: фільтр мінімальної вибірки.
+        limit: максимум записів у результаті.
+        """
+        if primary_pos not in (1, 2, 3, 4, 5):
+            raise ValueError(f"primary_pos must be 1-5, got {primary_pos}")
+
+        rows = self.conn.execute(
+            _HERO_ROLE_STATS_SQL + """
+            WHERE hrs.primary_pos = ?
+            GROUP BY mp.hero_id
+            HAVING COUNT(*) >= ?
+            ORDER BY (SUM(mp.win) * 1.0 / COUNT(*)) DESC
+            LIMIT ?
+            """,
+            (primary_pos, min_matches, limit),
+        ).fetchall()
+        return [_build_hero_role_stats_row(r) for r in rows]
