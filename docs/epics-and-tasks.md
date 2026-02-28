@@ -1,186 +1,141 @@
-2️⃣ Повний список EPIC → TASK (High-Level Roadmap)
+# Dota 2 Analytics Pipeline — Roadmap
 
-Це твій технічний план проєкту, який можна винести в:
+## Легенда статусів
+✅ Done | 🔜 Next | 🔄 In Progress | ⏳ Backlog
 
-docs/epics-and-tasks.md
+---
 
-GitHub Projects (Epic → Tasks → Issues)
+## 🧱 Epic 1 — Ingestion Service MVP ✅
 
-🧱 EPIC 1 — Foundation & Architecture
+Ціль: production-ready сервіс для отримання, валідації та збереження матчів.
 
-Ціль: технічний фундамент
+| Task | Опис | Статус |
+|------|------|--------|
+| 1.1 | Repo bootstrap: структура, CI, health endpoint | ✅ |
+| 1.2 | Config: pydantic-settings, ENV | ✅ |
+| 1.3 | Provider: HTTP client, rate limit, retry/backoff | ✅ |
+| 1.4 | Domain DTO: Match, PlayerMatchStats, pydantic validation | ✅ |
+| 1.5 | Persistence: SQLite repositories, UnitOfWork | ✅ |
+| 1.6 | Orchestration: ingest pipeline, logging, smoke tests | ✅ |
 
-TASK 1.1 — Repo bootstrap
+---
 
-Git flow
+## 🔍 Epic 2 — Match Discovery Service ✅
 
-CI/CD
+Ціль: автономний пошук матчів за фільтрами → передача в Ingestion.
 
-автотести
+| Task | Опис | Статус |
+|------|------|--------|
+| 2.1 | Match Discovery query через OpenDota Explorer API | ✅ |
+| 2.2 | Scheduler / runner: periodичний запуск | ✅ |
+| 2.3 | Deduplication & state: ingestion_log | ✅ |
+| 2.4 | Observability: structured logs, error tracking | ✅ |
+| 2.5 | Integration & E2E: повний flow discovery → збережений матч | ✅ |
 
-базова структура сервісів
+---
 
-TASK 1.2 — API DTO & JSON Parsing
+## 🧩 Epic 3 — Domain Model (Heroes, Items, Roles) ✅
 
-fixtures реальних матчів
+Ціль: нормалізована доменна модель для героїв, предметів і ролей.
 
-DTO
+| Task | Опис | Статус |
+|------|------|--------|
+| 3.1 | Hero domain model: heroes table, HeroRepository, sync | ✅ |
+| 3.2 | Item domain model: items table, ItemRepository, sync | ✅ |
+| 3.3 | Role taxonomy: Role enum, hero_role_scores table, HeroRoleScoreRepository | ✅ |
+| 3.4 | Hero stats enrichment: EnrichedPlayerStats, enrich_match(), get_with_role() | ✅ |
+| 3.5 | Integration & E2E: sync → enrich → assert, test_domain_model_cycle.py | ✅ |
 
-парсери
+**Ключові архітектурні рішення Epic 3:**
+- `domains/heroes/meta.py` — universal HeroMeta (pos1-5) без hero_id
+- `providers/opendota/hero_id_map.py` — adapter: name → opendota_id
+- `enrich_match()` приймає HeroRepository як DI → легко тестується без DB
 
-тести
+---
 
-TASK 1.3 — Relational DB Schema Design
+## 📊 Epic 4 — Analytics Engine 🔜
 
-ER-модель
+Ціль: SQL-запити і агрегація по матчах для статистики героїв і ролей.
 
-нормалізація
+| Task | Опис | Статус |
+|------|------|--------|
+| 4.1 | HeroStatsRepository: winrate і pickrate по hero_id | 🔜 |
+| 4.2 | Hero performance by role: winrate з урахуванням primary_pos | ⏳ |
+| 4.3 | Item build popularity: топ items per hero | ⏳ |
+| 4.4 | Match timeline analysis: early/mid/late performance | ⏳ |
+| 4.5 | Analytics API endpoints (FastAPI): /heroes/{id}/stats | ⏳ |
+| 4.6 | Integration tests для всіх analytics queries | ⏳ |
 
-первинні/зовнішні ключі
+**Залежності:** потребує заповнених match_players (Epic 1/2) і hero_role_scores (Epic 3).
 
-TASK 1.4 — SQLAlchemy Models + Migrations
+---
 
-ORM-моделі
+## 🧠 Epic 5 — Recommendation Engine ⏳
 
-Alembic
+Ціль: рекомендації героїв на основі драфту і статистики.
 
-SQLite schema
+| Task | Опис | Статус |
+|------|------|--------|
+| 5.1 | Rule-based recommendations MVP: hero по ролі і meta score | ⏳ |
+| 5.2 | Counter picks: які герої виграють проти конкретного hero | ⏳ |
+| 5.3 | Synergy picks: які герої добре грають разом | ⏳ |
+| 5.4 | Draft analyzer: 10 героїв → оцінка драфту | ⏳ |
+| 5.5 | Win probability estimation по драфту | ⏳ |
 
-🔌 EPIC 2 — Data Ingestion Pipeline
+**Залежності:** потребує Analytics Engine (Epic 4).
 
-Ціль: стабільний ingestion пайплайн
+---
 
-TASK 2.1 — OpenDota API Client
+## 🌐 Epic 6 — Public API ⏳
 
-retry
+Ціль: REST API готовий до підключення фронтенду.
 
-rate limit handling
+| Task | Опис | Статус |
+|------|------|--------|
+| 6.1 | Public API endpoints: heroes, matches, stats | ⏳ |
+| 6.2 | Filters & Pagination для всіх list endpoints | ⏳ |
+| 6.3 | OpenAPI docs (автоматично через FastAPI) | ⏳ |
+| 6.4 | Response caching (in-memory або Redis) | ⏳ |
+| 6.5 | Rate limiting для публічних endpoints | ⏳ |
 
-backoff
+---
 
-TASK 2.2 — Match Discovery Service
+## 🚀 Epic 7 — Scale & Production ⏳
 
-фільтри матчів
+Ціль: перехід з SQLite dev → production-ready інфраструктура.
 
-регіон
+| Task | Опис | Статус |
+|------|------|--------|
+| 7.1 | PostgreSQL migration (Alembic) | ⏳ |
+| 7.2 | Async ingestion pipeline (httpx + asyncio) | ⏳ |
+| 7.3 | Celery / task queue для scheduled jobs | ⏳ |
+| 7.4 | Docker Compose: app + db + worker | ⏳ |
+| 7.5 | Monitoring: structured logs, metrics (Prometheus) | ⏳ |
 
-рейтинг
+---
 
-часові вікна
+## Commit convention
 
-TASK 2.3 — Raw Data Storage
+```
+<type>(<scope>): <short description>
 
-збереження JSON
+Types:   feat | fix | test | refactor | docs | chore
+Scope:   epic-task number або module name
 
-дедуплікація
+Examples:
+  feat(3.4): add EnrichedPlayerStats and enrich_match()
+  fix(3.3): move Role import to module level in repositories
+  test(3.5): add E2E test for full domain model cycle
+  docs(epic-3): update README status and architecture
+  chore: update ruff config
+```
 
-TASK 2.4 — Normalization Pipeline
+## Issue naming convention
 
-DTO → DB
+```
+[EPIC-N][TASK-N.M] Short description
 
-валідація
-
-idempotency
-
-🗃 EPIC 3 — Domain Model (Heroes, Items, Skills, Roles)
-
-Ціль: доменна модель гри
-
-TASK 3.1 — Heroes
-
-базові поля
-
-hero_details
-
-TASK 3.2 — Skills & Talents
-
-порядок прокачки
-
-ліві/праві таланти
-
-TASK 3.3 — Items
-
-ціна
-
-ефективність
-
-категорії
-
-TASK 3.4 — Roles
-
-core/support
-
-role score (winrate + pickrate + performance)
-
-📊 EPIC 4 — Analytics Engine
-
-Ціль: корисна статистика
-
-TASK 4.1 — Winrate / Pickrate
-
-TASK 4.2 — Hero Performance by Role
-
-TASK 4.3 — Item Build Popularity
-
-TASK 4.4 — Skill Build Popularity
-
-TASK 4.5 — Talent Picks
-
-🧠 EPIC 5 — Recommendation Engine (AI / ML)
-
-Ціль: рекомендації
-
-TASK 5.1 — Rule-based Recommendations (MVP)
-
-TASK 5.2 — Counter & Synergy
-
-TASK 5.3 — Draft Analyzer (10 heroes → best builds)
-
-TASK 5.4 — Win Probability Estimation
-
-TASK 5.5 — ML Models (optional, later)
-
-🌐 EPIC 6 — Public API & Frontend Ready
-
-Ціль: підготовка до фронтенду
-
-TASK 6.1 — Public API
-
-TASK 6.2 — Filters & Pagination
-
-TASK 6.3 — API Docs
-
-TASK 6.4 — Caching
-
-🚀 EPIC 7 — Scale & Production
-
-Ціль: production-підготовка
-
-TASK 7.1 — PostgreSQL
-
-TASK 7.2 — Redis / Celery
-
-TASK 7.3 — Async ingestion
-
-TASK 7.4 — Monitoring & Logs
-
-TASK 7.5 — Docker Compose
-
-🧠 Як з цим працювати в GitHub
-
-У GitHub Projects:
-
-Columns:
-
-Backlog
-
-In Progress
-
-In Review
-
-Done
-
-Issues naming:
-
-`[EPIC-1][TASK-1.2] OpenDota JSON parsing`
-`[EPIC-2][TASK-2.1] OpenDota API client`
+Examples:
+  [EPIC-4][TASK-4.1] HeroStatsRepository: winrate and pickrate
+  [EPIC-4][TASK-4.2] Hero performance by role
+```
