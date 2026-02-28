@@ -26,11 +26,13 @@ def make_response(status: int, json_data: Any) -> MagicMock:
 @patch("services.ingestion.providers.opendota.items_client.requests.get")
 def test_get_items_returns_list(mock_get: MagicMock) -> None:
     mock_get.return_value = make_response(200, VALID_ITEMS_RESPONSE)
-    items = OpenDotaItemsClient().get_items()
-    assert len(items) == 2
-    names = {i.name for i in items}
-    assert names == {"blink", "branches"}
 
+    items = OpenDotaItemsClient().get_items()
+
+    assert isinstance(items, dict)
+    assert len(items) == 2
+    assert "blink" in items
+    assert items["blink"]["dname"] == "Blink Dagger"
 
 @patch("services.ingestion.providers.opendota.items_client.requests.get")
 def test_get_items_retries_on_429(mock_get: MagicMock) -> None:

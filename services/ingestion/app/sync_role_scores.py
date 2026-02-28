@@ -46,9 +46,8 @@ def sync_role_scores() -> int:
                 skipped_no_hero.append(name)
                 continue
 
-            scores = meta.scores
-            flex = sum(1 for s in scores if s >= 3)
-            primary = max(range(5), key=lambda i: scores[i]) + 1
+            flex = meta.flex_score
+            primary = meta.primary_pos
 
             records.append(HeroRoleScoreDB(
                 hero_id=hero_id,

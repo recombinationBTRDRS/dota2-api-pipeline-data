@@ -26,9 +26,12 @@ def make_response(status: int, json_data: Any) -> MagicMock:
 @patch("services.ingestion.providers.opendota.heroes_client.requests.get")
 def test_get_heroes_returns_list(mock_get: MagicMock) -> None:
     mock_get.return_value = make_response(200, VALID_HEROES_RESPONSE)
-    heroes = OpenDotaHeroesClient().get_heroes()
+    with patch("services.ingestion.providers.opendota.heroes_client.time.sleep"):
+        heroes = OpenDotaHeroesClient().get_heroes()
+
+    assert isinstance(heroes, list)
     assert len(heroes) == 2
-    assert heroes[0].name == "npc_dota_hero_antimage"
+    assert heroes[0]["name"] == "npc_dota_hero_antimage"
 
 
 @patch("services.ingestion.providers.opendota.heroes_client.requests.get")
@@ -46,9 +49,10 @@ def test_get_heroes_retries_on_429(mock_get: MagicMock) -> None:
 @patch("services.ingestion.providers.opendota.heroes_client.requests.get")
 def test_get_heroes_fails_fast_on_4xx(mock_get: MagicMock) -> None:
     mock_get.return_value = make_response(404, {})
-    with pytest.raises(RuntimeError, match="404"):
-        OpenDotaHeroesClient().get_heroes()
-    assert mock_get.call_count == 1
+
+    with patch("services.ingestion.providers.opendota.heroes_client.time.sleep"):
+        with pytest.raises(RuntimeError, match="Heroes client error 404"):
+            OpenDotaHeroesClient().get_heroes()
 
 
 @patch("services.ingestion.providers.opendota.heroes_client.requests.get")

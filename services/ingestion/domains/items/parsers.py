@@ -32,11 +32,14 @@ def parse_item(name: str, raw: dict) -> Item | None:
     if not isinstance(item_id, int) or not dname:
         return None
 
+    cost_raw = raw.get("cost")
+    cost = int(cost_raw) if isinstance(cost_raw, int) else 0
+
     return Item(
         id=item_id,
         name=name,
         localized_name=dname,
-        cost=raw.get("cost") or 0,
+        cost=cost,
         secret_shop=bool(raw.get("secret_shop", False)),
         side_shop=bool(raw.get("side_shop", False)),
         recipe=bool(raw.get("recipe", False)),

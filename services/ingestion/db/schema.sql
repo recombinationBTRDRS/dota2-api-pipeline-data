@@ -60,7 +60,7 @@ CREATE TABLE IF NOT EXISTS items (
     id          INTEGER PRIMARY KEY,
     name        TEXT    NOT NULL UNIQUE,
     localized_name TEXT NOT NULL,
-    cost        INTEGER NOT NULL DEFAULT 0,
+    cost        INTEGER NOT NULL DEFAULT 0 CHECK(cost >= 0),
     secret_shop INTEGER NOT NULL DEFAULT 0 CHECK(secret_shop IN (0, 1)),
     side_shop   INTEGER NOT NULL DEFAULT 0 CHECK(side_shop IN (0, 1)),
     recipe      INTEGER NOT NULL DEFAULT 0 CHECK(recipe IN (0, 1))

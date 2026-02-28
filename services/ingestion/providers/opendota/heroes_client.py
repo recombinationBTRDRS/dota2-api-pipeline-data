@@ -7,8 +7,6 @@ from typing import Any, Protocol
 import requests
 
 from services.ingestion.app.config import settings
-from services.ingestion.domains.heroes.dtos import Hero
-from services.ingestion.domains.heroes.parsers import parse_heroes
 
 logger = logging.getLogger(__name__)
 
@@ -16,18 +14,13 @@ logger = logging.getLogger(__name__)
 class HeroesProvider(Protocol):
     """Протокол для підміни HTTP-клієнта в тестах."""
 
-    def get_heroes(self) -> list[Hero]:
-        """Повертає список усіх героїв."""
+    def get_heroes(self) -> list[dict[str, Any]]:
+        """Повертає raw payload /heroes."""
         ...
 
 
 class OpenDotaHeroesClient:
-    """Клієнт для GET /heroes OpenDota API.
-
-    Та ж retry/rate-limit стратегія що і в інших OpenDota клієнтах:
-    - exponential backoff при 429 та 5xx
-    - fail-fast при non-retryable 4xx
-    """
+    """Клієнт для GET /heroes OpenDota API."""
 
     def __init__(self) -> None:
         self._last_request_ts = 0.0
@@ -45,7 +38,6 @@ class OpenDotaHeroesClient:
         self._last_request_ts = time.time()
 
     def _get_raw(self) -> list[dict[str, Any]]:
-        """Виконує GET /heroes з retry-стратегією."""
         url = f"{settings.OPENDOTA_BASE_URL}/heroes"
         last_exc: Exception | None = None
 
@@ -80,25 +72,18 @@ class OpenDotaHeroesClient:
                 )
 
             resp.raise_for_status()
-            return resp.json()  # type: ignore[no-any-return]
+            data = resp.json()
+            if not isinstance(data, list):
+                raise RuntimeError(f"Heroes response has unexpected type: {type(data).__name__}")
+            return data
 
         raise RuntimeError(
             f"Heroes: all {settings.OPENDOTA_RETRIES} attempts exhausted. "
             f"Last error: {last_exc}"
         )
 
-    def get_heroes(self) -> list[Hero]:
-        """Завантажує і парсить список усіх героїв.
-
-        Returns:
-            Список провалідованих Hero DTO.
-
-        Raises:
-            RuntimeError: якщо API недоступний після всіх спроб.
-            ValidationError: якщо відповідь не відповідає схемі.
-        """
+    def get_heroes(self) -> list[dict[str, Any]]:
         logger.info("Fetching heroes from OpenDota")
         raw = self._get_raw()
-        heroes = parse_heroes(raw)
-        logger.info("Fetched %d heroes", len(heroes))
-        return heroes
+        logger.info("Fetched %d raw heroes", len(raw))
+        return raw

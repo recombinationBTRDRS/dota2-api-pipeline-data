@@ -7,8 +7,6 @@ from typing import Any, Protocol
 import requests
 
 from services.ingestion.app.config import settings
-from services.ingestion.domains.items.dtos import Item
-from services.ingestion.domains.items.parsers import parse_items
 
 logger = logging.getLogger(__name__)
 
@@ -16,17 +14,13 @@ logger = logging.getLogger(__name__)
 class ItemsProvider(Protocol):
     """Протокол для підміни HTTP-клієнта в тестах."""
 
-    def get_items(self) -> list[Item]:
-        """Повертає список усіх предметів."""
+    def get_items(self) -> dict[str, Any]:
+        """Повертає raw payload /constants/items."""
         ...
 
 
 class OpenDotaItemsClient:
-    """Клієнт для GET /constants/items OpenDota API.
-
-    Endpoint повертає dict {name: {...}} — парсинг делегується parse_items().
-    Та ж retry/rate-limit стратегія що і в інших OpenDota клієнтах.
-    """
+    """Клієнт для GET /constants/items OpenDota API."""
 
     def __init__(self) -> None:
         self._last_request_ts = 0.0
@@ -44,7 +38,6 @@ class OpenDotaItemsClient:
         self._last_request_ts = time.time()
 
     def _get_raw(self) -> dict[str, Any]:
-        """Виконує GET /constants/items з retry-стратегією."""
         url = f"{settings.OPENDOTA_BASE_URL}/constants/items"
         last_exc: Exception | None = None
 
@@ -79,24 +72,20 @@ class OpenDotaItemsClient:
                 )
 
             resp.raise_for_status()
-            return resp.json()  # type: ignore[no-any-return]
+            data = resp.json()
+            if not isinstance(data, dict):
+                raise RuntimeError(
+                    f"Items response has unexpected type: {type(data).__name__}"
+                )
+            return data
 
         raise RuntimeError(
             f"Items: all {settings.OPENDOTA_RETRIES} attempts exhausted. "
             f"Last error: {last_exc}"
         )
 
-    def get_items(self) -> list[Item]:
-        """Завантажує і парсить список предметів.
-
-        Returns:
-            Список провалідованих Item DTO (службові записи без id пропускаються).
-
-        Raises:
-            RuntimeError: якщо API недоступний після всіх спроб.
-        """
+    def get_items(self) -> dict[str, Any]:
         logger.info("Fetching items from OpenDota")
         raw = self._get_raw()
-        items = parse_items(raw)
-        logger.info("Fetched %d items", len(items))
-        return items
+        logger.info("Fetched %d raw items", len(raw))
+        return raw

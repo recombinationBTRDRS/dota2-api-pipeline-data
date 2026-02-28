@@ -96,7 +96,7 @@ def test_bool_flags_persisted_correctly(db) -> None:
     with UnitOfWork() as uow:
         ItemRepository(uow.conn).upsert_batch([
             ItemDB(id=99, name="eaglesong", localized_name="Eaglesong",
-                   cost=3200, secret_shop=True, side_shop=False, recipe=False)
+                   cost=3200, secret_shop=True, side_shop=False, recipe=True)
         ])
 
     with UnitOfWork() as uow:
@@ -104,6 +104,7 @@ def test_bool_flags_persisted_correctly(db) -> None:
     assert result is not None
     assert result.secret_shop is True
     assert result.side_shop is False
+    assert result.recipe is True
 
 
 # ── sync_items ────────────────────────────────────────────────────────────────

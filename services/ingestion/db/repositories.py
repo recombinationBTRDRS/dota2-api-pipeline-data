@@ -300,6 +300,8 @@ class HeroRoleScoreRepository:
 
         Корисно для Epic 4/5: "всі сильні офлейнери" → get_by_pos(3, min_score=4).
         """
+        if pos not in (1, 2, 3, 4, 5):
+            raise ValueError(f"pos must be 1-5, got {pos}")
         col = f"pos{pos}"
         rows = self.conn.execute(
             f"SELECT hero_id, pos1, pos2, pos3, pos4, pos5, flex_score, primary_pos "
