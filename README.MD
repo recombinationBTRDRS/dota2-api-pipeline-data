@@ -5,9 +5,17 @@
 
 ## Статус
 
-![CI](https://github.com/recombinationBTRDRS/taskflow/actions/workflows/ci.yml/badge.svg?branch=feat/epic-1-ingestion-bootstrap)
+![CI](https://github.com/recombinationBTRDRS/dota2-api-pipeline-data/actions/workflows/ci.yml/badge.svg)
 
-**Epic 1 — Ingestion Service MVP:** ✅ завершено
+| Epic | Назва | Статус |
+|------|-------|--------|
+| 1 | Ingestion Service MVP | ✅ Done |
+| 2 | Match Discovery Service | ✅ Done |
+| 3 | Domain Model (Heroes, Items, Roles) | ✅ Done |
+| 4 | Analytics Engine | 🔜 Next |
+| 5 | Recommendation Engine | ⏳ Backlog |
+| 6 | Public API | ⏳ Backlog |
+| 7 | Scale & Production | ⏳ Backlog |
 
 ---
 
@@ -16,40 +24,48 @@
 ```
 OpenDota API
     │
-    ▼
-providers/opendota/
-    client.py        ← sync HTTP + rate limit + retry/backoff
-    async_client.py  ← async варіант
-    adapters.py      ← raw JSON → normalized contract dict
+    ├─ /heroes ──────────────────► sync_heroes()
+    ├─ /constants/items ─────────► sync_items()
+    │                                   │
+    │                             heroes / items tables
+    │                                   │
+    │                             sync_role_scores()
+    │                             (HERO_META + OPENDOTA_HERO_IDS)
+    │                                   │
+    │                          hero_role_scores table
     │
-    ▼
-domains/matches/
-    parsers.py       ← contract dict → Match DTO (pydantic validation)
-    dtos.py          ← PlayerMatchStats, Match
+    ├─ /matches/{id} ────────────► ingest_match()
+    │       │
+    │   adapters.py           raw JSON → contract dict
+    │   parsers.py            contract dict → Match DTO
+    │   persist.py            domain → DB models
+    │       │
+    │  matches / players / match_players tables
     │
-    ▼
-app/
-    persist.py       ← domain → DB models, єдина точка конвертації
-    ingest_match.py  ← orchestration: fetch → adapt → parse → persist
-    │
-    ▼
-db/
-    repositories.py  ← MatchRepository, PlayerRepository, MatchPlayerRepository
-    unit_of_work.py  ← атомарні транзакції (BEGIN / COMMIT / ROLLBACK)
-    schema.sql       ← matches, players, match_players
-    sqlite.py        ← connection, init_db
+    └─ Explorer API ─────────────► match discovery (Epic 2)
+
+                    ▼
+             enrich_match()
+    Match DTO + HeroRepository → EnrichedPlayerStats
+    (hero_name, primary_attr, attack_type, role)
+
+                    ▼
+           Analytics Engine (Epic 4)
 ```
 
-**Ізоляція шарів:** `domain` не знає про `db`, `db` не знає про `domain`,
-`providers` не знають про `db`.
+**Ізоляція шарів:**
+- `domains/` — чиста бізнес-логіка, без DB і HTTP
+- `providers/` — тільки HTTP, без DB
+- `db/` — тільки persistence, без domain logic
+- `app/` — orchestration: з'єднує шари
 
 ---
 
 ## Швидкий старт
 
 ```bash
-git clone https://github.com/recombinationBTRDRS/taskflow.git
-cd taskflow
+git clone https://github.com/recombinationBTRDRS/dota2-api-pipeline-data.git
+cd dota2-api-pipeline-data
 
 python -m venv venv
 # Windows:
@@ -61,7 +77,7 @@ pip install -r requirements.txt
 pip install -r requirements-dev.txt
 ```
 
-Скопіюй `.env.example` → `.env` і за потреби зміни значення:
+Скопіюй `.env.example` → `.env`:
 
 ```bash
 cp .env.example .env
@@ -104,9 +120,6 @@ pytest -q
 # Lint
 ruff check .
 
-# Форматування
-ruff format .
-
 # Type check
 python -m mypy services/ --ignore-missing-imports --explicit-package-bases
 ```
@@ -116,37 +129,53 @@ python -m mypy services/ --ignore-missing-imports --explicit-package-bases
 ## Структура репозиторію
 
 ```
-services/
-└── ingestion/
-    ├── app/
-    │   ├── config.py          # pydantic-settings
-    │   ├── ingest_match.py    # orchestration pipeline
-    │   ├── main.py            # FastAPI app, lifespan, /health
-    │   └── persist.py         # domain → DB, UnitOfWork
-    ├── db/
-    │   ├── models.py          # DB dataclasses
-    │   ├── repositories.py    # MatchRepository, PlayerRepository, MatchPlayerRepository
-    │   ├── schema.sql         # DDL
-    │   ├── sqlite.py          # connection, init_db
-    │   └── unit_of_work.py    # транзакційний контекст
-    ├── domains/
-    │   └── matches/
-    │       ├── dtos.py        # Match, PlayerMatchStats (pydantic)
-    │       └── parsers.py     # parse_match()
-    ├── providers/
-    │   └── opendota/
-    │       ├── adapters.py    # raw JSON → contract dict
-    │       ├── async_client.py
-    │       └── client.py      # MatchProvider Protocol + OpenDotaClient
-    └── tests/
-        ├── app/
-        ├── db/
-        ├── domains/
-        ├── integration/
-        └── providers/
-docs/
-├── epics-and-tasks.md         # roadmap
-└── architecture.md
+services/ingestion/
+├── app/
+│   ├── config.py             ← pydantic-settings
+│   ├── enrich.py             ← enrich_match(): Match → EnrichedPlayerStats
+│   ├── ingest_match.py       ← orchestration: fetch → adapt → parse → persist
+│   ├── main.py               ← FastAPI app, /health
+│   ├── persist.py            ← domain → DB
+│   ├── sync_heroes.py        ← sync heroes від OpenDota → DB
+│   ├── sync_items.py         ← sync items від OpenDota → DB
+│   └── sync_role_scores.py   ← join HERO_META + hero_id_map → DB
+├── db/
+│   ├── models.py             ← DB dataclasses
+│   ├── repositories.py       ← всі репозиторії
+│   ├── schema.sql            ← DDL: matches, players, heroes, items, hero_role_scores
+│   ├── sqlite.py             ← connection, init_db
+│   └── unit_of_work.py       ← атомарні транзакції
+├── domains/
+│   ├── heroes/
+│   │   ├── dtos.py           ← Hero, EnrichedPlayerStats (pydantic)
+│   │   ├── meta.py           ← HeroMeta + HERO_META[name→scores], 125 героїв
+│   │   └── parsers.py
+│   ├── items/
+│   │   ├── dtos.py
+│   │   └── parsers.py
+│   ├── matches/
+│   │   ├── dtos.py           ← Match, PlayerMatchStats
+│   │   └── parsers.py
+│   ├── roles/
+│   │   └── dtos.py           ← Role enum (CARRY=1..HARD_SUPPORT=5)
+│   └── discovery/
+│       ├── dtos.py
+│       └── query_builder.py
+├── providers/opendota/
+│   ├── hero_id_map.py        ← OPENDOTA_HERO_IDS[name→id], 125 героїв
+│   ├── heroes_client.py
+│   ├── items_client.py
+│   ├── adapters.py
+│   ├── client.py
+│   ├── async_client.py
+│   └── explorer_client.py
+└── tests/
+    ├── app/                  ← unit: enrich, ingest, persist
+    ├── db/                   ← unit: repositories
+    ├── domains/              ← unit: parsers, meta, roles
+    ├── integration/          ← real SQLite: sync flows
+    ├── providers/            ← mock HTTP: clients
+    └── e2e/                  ← full cycle sync → enrich → assert
 ```
 
 ---
@@ -157,23 +186,7 @@ docs/
 - **FastAPI 0.115** + Uvicorn
 - **Pydantic v2** + pydantic-settings
 - **SQLite** (dev) → PostgreSQL (prod, Epic 7)
-- **httpx** (async HTTP) + **requests** (sync HTTP)
-- **pytest** + pytest-asyncio + pytest-cov
-- **ruff** (lint + format) + **mypy** (type check)
+- **httpx** (async) + **requests** (sync)
+- **pytest** + pytest-asyncio
+- **ruff** (lint) + **mypy** (type check)
 - **GitHub Actions** (CI)
-
----
-
-## Roadmap
-
-| Epic | Назва | Статус |
-|------|-------|--------|
-| 1 | Ingestion Service MVP | ✅ Done |
-| 2 | Match Discovery Service | 🔜 Next |
-| 3 | Domain Model (Heroes, Items, Roles) | ⏳ Backlog |
-| 4 | Analytics Engine | ⏳ Backlog |
-| 5 | Recommendation Engine | ⏳ Backlog |
-| 6 | Public API | ⏳ Backlog |
-| 7 | Scale & Production | ⏳ Backlog |
-
-Детальний план: [`docs/epics-and-tasks.md`](docs/epics-and-tasks.md)
