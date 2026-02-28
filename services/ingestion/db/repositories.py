@@ -1,5 +1,6 @@
 # services/ingestion/db/repositories.py
 import sqlite3
+from dataclasses import dataclass
 
 from services.ingestion.db.models import (
     HeroDB,
@@ -10,7 +11,6 @@ from services.ingestion.db.models import (
     PlayerDB,
 )
 from services.ingestion.db.models import MatchDB as DBMatch
-from services.ingestion.domains.roles.dtos import Role
 
 _MAX_ERROR_LEN = 500
 
@@ -201,14 +201,12 @@ class HeroRepository:
             for r in rows
         ]
 
-    def get_with_role(self, hero_id: int) -> tuple[HeroDB, Role | None] | None:
-        """Повертає (HeroDB, Role | None) за hero_id або None якщо герой не знайдений.
+    def get_with_role(self, hero_id: int) -> tuple[HeroDB, int | None] | None:
+        """Повертає (HeroDB, primary_pos) за hero_id або None якщо герой не знайдений.
 
-        Role визначається через JOIN з hero_role_scores.primary_pos.
-        Якщо запис у hero_role_scores відсутній — role буде None у поверненому tuple.
-
-        Використовується в enrich_match() щоб збагатити PlayerMatchStats
-        даними героя і його основною роллю.
+        primary_pos: int 1–5 або None якщо sync_role_scores ще не запускався.
+        Маппінг primary_pos → Role виконується в app/enrich.py (не в db-шарі).
+        db-шар не імпортує з domains/ — ізоляція шарів.
         """
         row = self.conn.execute(
             """
@@ -231,11 +229,7 @@ class HeroRepository:
             primary_attr=row["primary_attr"],
             attack_type=row["attack_type"],
         )
-
-        # primary_pos може бути NULL якщо sync_role_scores ще не запускався
-        role: Role | None = Role(row["primary_pos"]) if row["primary_pos"] is not None else None
-
-        return hero, role
+        return hero, row["primary_pos"]  # primary_pos: int | None
 
 
 class ItemRepository:
@@ -287,17 +281,12 @@ class ItemRepository:
 
 
 class HeroRoleScoreRepository:
-    """Репозиторій для таблиці hero_role_scores (Task 3.3).
-
-    Зберігає pre-computed бали по позиціях для кожного героя.
-    Дозволяє SQL-запити: get по hero_id, фільтр по позиції/балу, фільтр по flex.
-    """
+    """Репозиторій для таблиці hero_role_scores (Task 3.3)."""
 
     def __init__(self, conn: sqlite3.Connection) -> None:
         self.conn = conn
 
     def upsert_batch(self, scores: list[HeroRoleScoreDB]) -> None:
-        """Ідемпотентне збереження списку score-записів."""
         self.conn.executemany(
             """
             INSERT INTO hero_role_scores
@@ -317,7 +306,6 @@ class HeroRoleScoreRepository:
         )
 
     def get(self, hero_id: int) -> HeroRoleScoreDB | None:
-        """Повертає HeroRoleScoreDB за hero_id або None."""
         row = self.conn.execute(
             "SELECT hero_id, pos1, pos2, pos3, pos4, pos5, flex_score, primary_pos "
             "FROM hero_role_scores WHERE hero_id = ?",
@@ -333,10 +321,6 @@ class HeroRoleScoreRepository:
         )
 
     def get_by_pos(self, pos: int, min_score: int = 4) -> list[HeroRoleScoreDB]:
-        """Повертає героїв з балом >= min_score на позиції pos (1–5).
-
-        Корисно для Epic 4/5: "всі сильні офлейнери" → get_by_pos(3, min_score=4).
-        """
         if pos not in (1, 2, 3, 4, 5):
             raise ValueError(f"pos must be 1-5, got {pos}")
         col = f"pos{pos}"
@@ -353,10 +337,6 @@ class HeroRoleScoreRepository:
         ) for r in rows]
 
     def get_flex_heroes(self, min_flex: int = 4) -> list[HeroRoleScoreDB]:
-        """Повертає героїв з flex_score >= min_flex, відсортованих за flex DESC.
-
-        Корисно для рекомендацій: "знайди flex-героя якого можна поставити на 2-3 позиції".
-        """
         rows = self.conn.execute(
             "SELECT hero_id, pos1, pos2, pos3, pos4, pos5, flex_score, primary_pos "
             "FROM hero_role_scores WHERE flex_score >= ? ORDER BY flex_score DESC",
@@ -368,3 +348,115 @@ class HeroRoleScoreRepository:
             pos4=r["pos4"], pos5=r["pos5"],
             flex_score=r["flex_score"], primary_pos=r["primary_pos"],
         ) for r in rows]
+
+
+# ── Task 4.1: Hero Stats ──────────────────────────────────────────────────────
+
+@dataclass(slots=True)
+class HeroStatsRow:
+    """Raw агрегований рядок з DB (Task 4.1).
+
+    Це db-layer dataclass, не domain DTO.
+    Конвертація в domain DTO відбувається в app-шарі якщо потрібно.
+    """
+
+    hero_id: int
+    hero_name: str | None      # localized_name з JOIN heroes, None якщо немає запису
+    matches_played: int
+    wins: int
+    losses: int
+    winrate: float             # wins / matches_played, округлено 4 знаки; 0.0 якщо 0 матчів
+    avg_kills: float
+    avg_deaths: float
+    avg_assists: float
+    avg_gpm: float
+    avg_xpm: float
+
+
+def _build_hero_stats_row(row: sqlite3.Row) -> HeroStatsRow:
+    matches = int(row["matches_played"])
+    wins = int(row["wins"])
+    return HeroStatsRow(
+        hero_id=row["hero_id"],
+        hero_name=row["localized_name"],
+        matches_played=matches,
+        wins=wins,
+        losses=matches - wins,
+        winrate=round(wins / matches, 4) if matches > 0 else 0.0,
+        avg_kills=round(float(row["avg_kills"]), 2),
+        avg_deaths=round(float(row["avg_deaths"]), 2),
+        avg_assists=round(float(row["avg_assists"]), 2),
+        avg_gpm=round(float(row["avg_gpm"]), 2),
+        avg_xpm=round(float(row["avg_xpm"]), 2),
+    )
+
+
+_HERO_STATS_SQL = """
+    SELECT
+        mp.hero_id,
+        h.localized_name,
+        COUNT(*)        AS matches_played,
+        SUM(mp.win)     AS wins,
+        AVG(mp.kills)   AS avg_kills,
+        AVG(mp.deaths)  AS avg_deaths,
+        AVG(mp.assists) AS avg_assists,
+        AVG(mp.gpm)     AS avg_gpm,
+        AVG(mp.xpm)     AS avg_xpm
+    FROM match_players mp
+    LEFT JOIN heroes h ON h.id = mp.hero_id
+"""
+
+
+class HeroStatsRepository:
+    """Аналітичний репозиторій: winrate / pickrate / avg KDA по героях (Task 4.1).
+
+    Агрегує дані з match_players + heroes.
+    Всі методи read-only — не змінюють DB.
+    Повертає HeroStatsRow (db-layer dataclass), не domain DTO.
+    """
+
+    def __init__(self, conn: sqlite3.Connection) -> None:
+        self.conn = conn
+
+    def get_hero_stats(self, hero_id: int) -> HeroStatsRow | None:
+        """Повертає агреговану статистику по одному герою або None якщо немає матчів."""
+        row = self.conn.execute(
+            _HERO_STATS_SQL + "WHERE mp.hero_id = ? GROUP BY mp.hero_id",
+            (hero_id,),
+        ).fetchone()
+        return _build_hero_stats_row(row) if row is not None else None
+
+    def get_all_heroes_stats(self, min_matches: int = 10) -> list[HeroStatsRow]:
+        """Повертає статистику всіх героїв з кількістю матчів >= min_matches.
+
+        Відсортовано за hero_id для детермінованого порядку.
+        """
+        rows = self.conn.execute(
+            _HERO_STATS_SQL + """
+            GROUP BY mp.hero_id
+            HAVING COUNT(*) >= ?
+            ORDER BY mp.hero_id
+            """,
+            (min_matches,),
+        ).fetchall()
+        return [_build_hero_stats_row(r) for r in rows]
+
+    def get_top_by_winrate(
+        self,
+        limit: int = 10,
+        min_matches: int = 20,
+    ) -> list[HeroStatsRow]:
+        """Повертає топ героїв за winrate DESC.
+
+        min_matches фільтрує героїв з малою вибіркою (статистично ненадійні).
+        """
+        rows = self.conn.execute(
+            _HERO_STATS_SQL + """
+            GROUP BY mp.hero_id
+            HAVING COUNT(*) >= ?
+            ORDER BY (SUM(mp.win) * 1.0 / COUNT(*)) DESC
+            LIMIT ?
+            """,
+            (min_matches, limit),
+        ).fetchall()
+        return [_build_hero_stats_row(r) for r in rows]

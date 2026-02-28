@@ -3,23 +3,35 @@
 
 enrich_match() збагачує статистику гравців матчу даними героя і ролі з DB.
 
-Передумова:
-    sync_heroes() і sync_role_scores() мають бути запущені перед викликом,
-    інакше герої не будуть знайдені і поля hero_name/role будуть None.
-
 Архітектурні рішення:
+    - Role маппінг (primary_pos → Role) живе тут, не в db-шарі.
+      db/repositories.py повертає primary_pos: int | None — чистий int без domain залежностей.
     - enrich_match() приймає HeroRepository як DI параметр — легко мокається в тестах.
     - Не пише в DB — тільки читає.
-    - Graceful degradation: якщо герой не знайдений — логує warning і повертає None-поля,
-      не падає і не пропускає гравця.
+    - Graceful degradation: якщо герой не знайдений — логує warning, hero-поля = None.
 """
 import logging
 
 from services.ingestion.db.repositories import HeroRepository
 from services.ingestion.domains.heroes.dtos import EnrichedPlayerStats
 from services.ingestion.domains.matches.dtos import Match
+from services.ingestion.domains.roles.dtos import Role
 
 logger = logging.getLogger(__name__)
+
+
+def _primary_pos_to_role(primary_pos: int | None) -> Role | None:
+    """Конвертує primary_pos (int 1–5) → Role enum або None.
+
+    Живе в app-шарі щоб db-шар не мав залежності від domains.
+    """
+    if primary_pos is None:
+        return None
+    try:
+        return Role(primary_pos)
+    except ValueError:
+        logger.warning("Unknown primary_pos value: %d", primary_pos)
+        return None
 
 
 def enrich_match(
@@ -30,17 +42,16 @@ def enrich_match(
 
     Для кожного гравця з match.players:
       1. Шукає героя через hero_repo.get_with_role(hero_id).
-      2. Якщо знайдений — заповнює hero_name, primary_attr, attack_type, role.
-      3. Якщо не знайдений — логує warning, всі hero-поля = None.
+         get_with_role повертає (HeroDB, primary_pos: int | None) | None.
+      2. Конвертує primary_pos → Role тут (app-шар).
+      3. Якщо герой не знайдений — логує warning, всі hero-поля = None.
 
     Args:
-        match: провалідований Match DTO з domain layer.
+        match: провалідований Match DTO.
         hero_repo: HeroRepository з активним DB-з'єднанням.
-                   Caller відповідає за lifecycle з'єднання (UnitOfWork або conn).
 
     Returns:
-        Список EnrichedPlayerStats — по одному на кожного гравця в матчі.
-        Порядок відповідає match.players.
+        Список EnrichedPlayerStats — по одному на кожного гравця.
     """
     results: list[EnrichedPlayerStats] = []
 
@@ -58,10 +69,11 @@ def enrich_match(
             attack_type = None
             role = None
         else:
-            hero_db, role = hero_result
+            hero_db, primary_pos = hero_result
             hero_name = hero_db.localized_name
             primary_attr = hero_db.primary_attr
             attack_type = hero_db.attack_type
+            role = _primary_pos_to_role(primary_pos)
 
         results.append(EnrichedPlayerStats(
             match_id=match.match_id,

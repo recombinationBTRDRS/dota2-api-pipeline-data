@@ -1,11 +1,9 @@
 # services/ingestion/tests/app/test_enrich.py
-"""Unit-тести для enrich_match() з mock HeroRepository (Task 3.4).
-
-Не потребує реального SQLite — HeroRepository повністю мокується.
-"""
+"""Unit-тести для enrich_match() з mock HeroRepository (Task 3.4)."""
 from unittest.mock import MagicMock
 
 import pytest
+from pydantic import ValidationError
 
 from services.ingestion.app.enrich import enrich_match
 from services.ingestion.db.models import HeroDB
@@ -54,13 +52,21 @@ def _make_hero_db(hero_id: int = 1) -> HeroDB:
     )
 
 
-def _mock_repo(hero_id: int, hero_db: HeroDB | None, role: Role | None) -> MagicMock:
-    """Повертає mock HeroRepository де get_with_role(hero_id) → (hero_db, role) або None."""
+def _mock_repo(
+    hero_id: int,
+    hero_db: HeroDB | None,
+    primary_pos: int | None,
+) -> MagicMock:
+    """Повертає mock HeroRepository.
+
+    get_with_role(hero_id) → (hero_db, primary_pos) або None.
+    primary_pos: int 1–5 або None (db-шар не повертає Role).
+    """
     repo = MagicMock()
     if hero_db is None:
         repo.get_with_role.return_value = None
     else:
-        repo.get_with_role.return_value = (hero_db, role)
+        repo.get_with_role.return_value = (hero_db, primary_pos)
     return repo
 
 
@@ -69,7 +75,7 @@ def _mock_repo(hero_id: int, hero_db: HeroDB | None, role: Role | None) -> Magic
 def test_enrich_returns_hero_name_and_role() -> None:
     """Якщо герой знайдений в DB — hero_name і role заповнені коректно."""
     hero = _make_hero_db(hero_id=1)
-    repo = _mock_repo(hero_id=1, hero_db=hero, role=Role.CARRY)
+    repo = _mock_repo(hero_id=1, hero_db=hero, primary_pos=1)  # primary_pos=1 → CARRY
 
     match = _make_match([_make_player(slot=0, hero_id=1)])
     results = enrich_match(match, repo)
@@ -84,7 +90,7 @@ def test_enrich_returns_hero_name_and_role() -> None:
 
 def test_enrich_none_when_hero_not_in_db() -> None:
     """Якщо герой не в DB — graceful degradation: hero_name/role = None, не падає."""
-    repo = _mock_repo(hero_id=99, hero_db=None, role=None)
+    repo = _mock_repo(hero_id=99, hero_db=None, primary_pos=None)
 
     match = _make_match([_make_player(slot=0, hero_id=99)])
     results = enrich_match(match, repo)
@@ -100,7 +106,7 @@ def test_enrich_none_when_hero_not_in_db() -> None:
 def test_enrich_preserves_player_stats() -> None:
     """Статистика гравця (kills, gpm тощо) передається без змін."""
     hero = _make_hero_db(hero_id=1)
-    repo = _mock_repo(hero_id=1, hero_db=hero, role=Role.MID)
+    repo = _mock_repo(hero_id=1, hero_db=hero, primary_pos=2)  # primary_pos=2 → MID
 
     player = _make_player(slot=0, hero_id=1, account_id=42)
     match = _make_match([player])
@@ -120,9 +126,9 @@ def test_enrich_preserves_player_stats() -> None:
 
 
 def test_enrich_none_role_when_role_scores_missing() -> None:
-    """Герой є в DB, але role_scores відсутні → role = None (sync_role_scores не запущений)."""
+    """Герой є в DB, але primary_pos=None → role = None (sync_role_scores не запущений)."""
     hero = _make_hero_db(hero_id=1)
-    repo = _mock_repo(hero_id=1, hero_db=hero, role=None)
+    repo = _mock_repo(hero_id=1, hero_db=hero, primary_pos=None)
 
     match = _make_match([_make_player(slot=0, hero_id=1)])
     results = enrich_match(match, repo)
@@ -133,14 +139,16 @@ def test_enrich_none_role_when_role_scores_missing() -> None:
 
 
 def test_enrich_multiple_players_mixed() -> None:
-    """10 гравців: частина знайдена в DB, частина — ні."""
+    """3 гравці: частина знайдена в DB, частина — ні."""
     hero = _make_hero_db(hero_id=1)
 
     repo = MagicMock()
-    def side_effect(hero_id: int):
+
+    def side_effect(hero_id: int) -> tuple | None:
         if hero_id == 1:
-            return (hero, Role.CARRY)
+            return (hero, 1)  # primary_pos=1 → CARRY
         return None
+
     repo.get_with_role.side_effect = side_effect
 
     players = [
@@ -162,19 +170,19 @@ def test_enrich_multiple_players_mixed() -> None:
 def test_enriched_player_stats_is_frozen() -> None:
     """EnrichedPlayerStats є immutable (frozen pydantic model)."""
     hero = _make_hero_db()
-    repo = _mock_repo(hero_id=1, hero_db=hero, role=Role.OFFLANE)
+    repo = _mock_repo(hero_id=1, hero_db=hero, primary_pos=3)  # OFFLANE
 
     match = _make_match([_make_player()])
     enriched = enrich_match(match, repo)[0]
 
-    with pytest.raises((TypeError, Exception)):
+    with pytest.raises(ValidationError):
         enriched.kills = 999  # type: ignore[misc]
 
 
 def test_enrich_calls_repo_once_per_player() -> None:
     """get_with_role викликається рівно по одному разу на кожного гравця."""
     hero = _make_hero_db(hero_id=1)
-    repo = _mock_repo(hero_id=1, hero_db=hero, role=Role.CARRY)
+    repo = _mock_repo(hero_id=1, hero_db=hero, primary_pos=1)
 
     players = [_make_player(slot=i, hero_id=1) for i in range(5)]
     match = _make_match(players)

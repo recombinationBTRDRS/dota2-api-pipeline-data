@@ -1,6 +1,7 @@
 # Dota 2 Analytics Pipeline — Roadmap
 
 ## Легенда статусів
+
 ✅ Done | 🔜 Next | 🔄 In Progress | ⏳ Backlog
 
 ---
@@ -47,9 +48,11 @@
 | 3.5 | Integration & E2E: sync → enrich → assert, test_domain_model_cycle.py | ✅ |
 
 **Ключові архітектурні рішення Epic 3:**
+
 - `domains/heroes/meta.py` — universal HeroMeta (pos1-5) без hero_id
 - `providers/opendota/hero_id_map.py` — adapter: name → opendota_id
 - `enrich_match()` приймає HeroRepository як DI → легко тестується без DB
+- `db/` не імпортує з `domains/` — ізоляція шарів; `primary_pos → Role` маппінг в `app/enrich.py`
 
 ---
 
@@ -64,7 +67,7 @@
 | 4.3 | Item build popularity: топ items per hero | ⏳ |
 | 4.4 | Match timeline analysis: early/mid/late performance | ⏳ |
 | 4.5 | Analytics API endpoints (FastAPI): /heroes/{id}/stats | ⏳ |
-| 4.6 | Integration tests для всіх analytics queries | ⏳ |
+| 4.6 | Integration & E2E tests для всіх analytics queries | ⏳ |
 
 **Залежності:** потребує заповнених match_players (Epic 1/2) і hero_role_scores (Epic 3).
 
@@ -116,7 +119,7 @@
 
 ## Commit convention
 
-```
+```text
 <type>(<scope>): <short description>
 
 Types:   feat | fix | test | refactor | docs | chore
@@ -132,7 +135,7 @@ Examples:
 
 ## Issue naming convention
 
-```
+```text
 [EPIC-N][TASK-N.M] Short description
 
 Examples:
