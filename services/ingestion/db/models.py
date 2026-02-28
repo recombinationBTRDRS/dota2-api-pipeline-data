@@ -5,8 +5,6 @@ from typing import Literal
 
 @dataclass(slots=True)
 class MatchDB:
-    """DB-представлення матчу (окремо від domain DTO)."""
-
     id: int
     start_time: int
     duration: int
@@ -17,8 +15,6 @@ class MatchDB:
 
 @dataclass(slots=True)
 class PlayerDB:
-    """DB-представлення гравця. account_id може бути None для анонімів."""
-
     id: int | None
     account_id: int | None
     rank_tier: int | None
@@ -27,13 +23,6 @@ class PlayerDB:
 
 @dataclass(slots=True)
 class MatchPlayerDB:
-    """DB-представлення участі гравця у матчі.
-
-    player_slot (0–9) — унікальний слот у матчі, частина PK (match_id, player_slot).
-    Обов'язкове поле — caller відповідає за передачу коректного значення.
-    player_id — FK до players.id.
-    """
-
     match_id: int
     player_id: int | None
     hero_id: int
@@ -48,14 +37,56 @@ class MatchPlayerDB:
 
 @dataclass(slots=True)
 class IngestionLogDB:
-    """DB-представлення запису в журналі інжесту.
-
-    status: 'ok' — успішно збережено, 'failed' — помилка при інжесті.
-    error: текст помилки (max 500 символів), None при status='ok'.
-    ingested_at: unix timestamp.
-    """
-
     match_id: int
     status: Literal["ok", "failed"]
     ingested_at: int
     error: str | None
+
+
+@dataclass(slots=True)
+class HeroDB:
+    """DB-представлення героя Dota 2 (Task 3.1)."""
+
+    id: int
+    name: str
+    localized_name: str
+    primary_attr: Literal["str", "agi", "int", "all"]
+    attack_type: Literal["Melee", "Ranged"]
+
+
+@dataclass(slots=True)
+class ItemDB:
+    """DB-представлення предмету Dota 2 (Task 3.2).
+
+    id = OpenDota item id.
+    cost: ціна в золоті (0 для рецептів і базових предметів).
+    secret_shop / side_shop / recipe — булеві прапори.
+    """
+
+    id: int
+    name: str           # internal key: 'blink'
+    localized_name: str  # display name: 'Blink Dagger'
+    cost: int
+    secret_shop: bool
+    side_shop: bool
+    recipe: bool
+
+
+@dataclass(slots=True)
+class HeroRoleScoreDB:
+    """DB-представлення бальної оцінки героя по позиціях (Task 3.3).
+
+    hero_id = OpenDota hero id (FK → heroes.id).
+    pos1..pos5: бали 1–5 по кожній позиції (1=carry..5=hard_support).
+    flex_score: кількість позицій з балом >= 3 (pre-computed при sync).
+    primary_pos: позиція з найвищим балом 1–5 (pre-computed при sync).
+    """
+
+    hero_id: int
+    pos1: int
+    pos2: int
+    pos3: int
+    pos4: int
+    pos5: int
+    flex_score: int
+    primary_pos: int

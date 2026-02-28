@@ -11,9 +11,6 @@ CREATE TABLE IF NOT EXISTS matches (
     region      INTEGER
 );
 
--- account_id може бути NULL для анонімних гравців.
--- SQLite: UNIQUE constraint на nullable column — два різних NULL не конфліктують,
--- тому реальні акаунти дедупліковані, аноніми отримують окремий рядок.
 CREATE TABLE IF NOT EXISTS players (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     account_id  INTEGER UNIQUE,
@@ -21,9 +18,6 @@ CREATE TABLE IF NOT EXISTS players (
     mmr         REAL
 );
 
--- player_slot (0–9) — унікальний слот у матчі (PK разом з match_id).
--- Дозволяє ідемпотентний upsert анонімних гравців по (match_id, player_slot).
--- player_id — FK до players.id (nullable: SET NULL при видаленні гравця).
 CREATE TABLE IF NOT EXISTS match_players (
     match_id    INTEGER NOT NULL,
     player_slot INTEGER NOT NULL,
@@ -45,14 +39,52 @@ CREATE INDEX IF NOT EXISTS idx_match_players_match_id
 CREATE INDEX IF NOT EXISTS idx_match_players_player_id
     ON match_players (player_id);
 
--- Журнал інжесту матчів (Task 2.3 — Deduplication).
--- match_id — PK, тому кожен матч має рівно один запис.
--- status: 'ok' — успішно збережено, 'failed' — помилка при інжесті.
--- error — текст помилки (truncated до 500 символів), NULL при status='ok'.
--- ingested_at — unix timestamp моменту запису.
 CREATE TABLE IF NOT EXISTS ingestion_log (
     match_id    INTEGER PRIMARY KEY,
     status      TEXT    NOT NULL CHECK(status IN ('ok', 'failed')),
     ingested_at INTEGER NOT NULL,
     error       TEXT
 );
+
+-- Герої Dota 2 (Task 3.1).
+CREATE TABLE IF NOT EXISTS heroes (
+    id              INTEGER PRIMARY KEY,
+    name            TEXT    NOT NULL UNIQUE,
+    localized_name  TEXT    NOT NULL,
+    primary_attr    TEXT    NOT NULL CHECK(primary_attr IN ('str', 'agi', 'int', 'all')),
+    attack_type     TEXT    NOT NULL CHECK(attack_type IN ('Melee', 'Ranged'))
+);
+
+-- Предмети Dota 2 (Task 3.2).
+CREATE TABLE IF NOT EXISTS items (
+    id          INTEGER PRIMARY KEY,
+    name        TEXT    NOT NULL UNIQUE,
+    localized_name TEXT NOT NULL,
+    cost        INTEGER NOT NULL DEFAULT 0 CHECK(cost >= 0),
+    secret_shop INTEGER NOT NULL DEFAULT 0 CHECK(secret_shop IN (0, 1)),
+    side_shop   INTEGER NOT NULL DEFAULT 0 CHECK(side_shop IN (0, 1)),
+    recipe      INTEGER NOT NULL DEFAULT 0 CHECK(recipe IN (0, 1))
+);
+
+-- Бальна оцінка героїв по позиціях (Task 3.3).
+-- hero_id PK + FK → heroes.id ON DELETE CASCADE.
+-- pos1-5: бали 1-5 (1=carry, 2=mid, 3=offlane, 4=support, 5=hard_support).
+-- flex_score: кількість позицій з балом >= 3 (pre-computed при sync).
+-- primary_pos: позиція з найвищим балом (pre-computed при sync).
+-- Джерело: domains/heroes/meta.py + providers/opendota/hero_id_map.py
+CREATE TABLE IF NOT EXISTS hero_role_scores (
+    hero_id     INTEGER PRIMARY KEY,
+    pos1        INTEGER NOT NULL CHECK(pos1 BETWEEN 1 AND 5),
+    pos2        INTEGER NOT NULL CHECK(pos2 BETWEEN 1 AND 5),
+    pos3        INTEGER NOT NULL CHECK(pos3 BETWEEN 1 AND 5),
+    pos4        INTEGER NOT NULL CHECK(pos4 BETWEEN 1 AND 5),
+    pos5        INTEGER NOT NULL CHECK(pos5 BETWEEN 1 AND 5),
+    flex_score  INTEGER NOT NULL CHECK(flex_score BETWEEN 0 AND 5),
+    primary_pos INTEGER NOT NULL CHECK(primary_pos BETWEEN 1 AND 5),
+    FOREIGN KEY (hero_id) REFERENCES heroes(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_hero_role_scores_primary_pos
+    ON hero_role_scores (primary_pos);
+CREATE INDEX IF NOT EXISTS idx_hero_role_scores_flex
+    ON hero_role_scores (flex_score);

@@ -1,20 +1,25 @@
 # services/ingestion/db/repositories.py
 import sqlite3
+from dataclasses import dataclass
 
-from services.ingestion.db.models import IngestionLogDB, MatchPlayerDB, PlayerDB
+from services.ingestion.db.models import (
+    HeroDB,
+    HeroRoleScoreDB,
+    IngestionLogDB,
+    ItemDB,
+    MatchPlayerDB,
+    PlayerDB,
+)
 from services.ingestion.db.models import MatchDB as DBMatch
 
-_MAX_ERROR_LEN = 500  # максимальна довжина тексту помилки в ingestion_log
+_MAX_ERROR_LEN = 500
 
 
 class MatchRepository:
-    """Репозиторій для таблиці matches."""
-
     def __init__(self, conn: sqlite3.Connection) -> None:
         self.conn = conn
 
     def upsert(self, match: DBMatch) -> None:
-        """Ідемпотентне збереження матчу (INSERT або UPDATE при конфлікті id)."""
         self.conn.execute(
             """
             INSERT INTO matches (id, start_time, duration, radiant_win, patch, region)
@@ -26,30 +31,16 @@ class MatchRepository:
                 patch       = excluded.patch,
                 region      = excluded.region
             """,
-            (
-                match.id,
-                match.start_time,
-                match.duration,
-                match.radiant_win,
-                match.patch,
-                match.region,
-            ),
+            (match.id, match.start_time, match.duration,
+             match.radiant_win, match.patch, match.region),
         )
 
 
 class PlayerRepository:
-    """Репозиторій для таблиці players.
-
-    Обробляє два кейси:
-    - account_id IS NULL  → INSERT нового анонімного гравця, повертає lastrowid.
-    - account_id NOT NULL → INSERT OR IGNORE + UPDATE, повертає id по account_id.
-    """
-
     def __init__(self, conn: sqlite3.Connection) -> None:
         self.conn = conn
 
     def upsert(self, player: PlayerDB) -> int:
-        """Зберігає гравця і повертає його id у таблиці players."""
         if player.account_id is None:
             cur = self.conn.execute(
                 "INSERT INTO players (rank_tier, mmr) VALUES (?, ?)",
@@ -76,16 +67,10 @@ class PlayerRepository:
 
 
 class MatchPlayerRepository:
-    """Репозиторій для таблиці match_players.
-
-    PK = (match_id, player_slot) — гарантує ідемпотентність по слоту матчу.
-    """
-
     def __init__(self, conn: sqlite3.Connection) -> None:
         self.conn = conn
 
     def upsert(self, mp: MatchPlayerDB) -> None:
-        """Ідемпотентне збереження участі гравця у матчі."""
         self.conn.execute(
             """
             INSERT INTO match_players
@@ -102,42 +87,16 @@ class MatchPlayerRepository:
                 xpm       = excluded.xpm,
                 win       = excluded.win
             """,
-            (
-                mp.match_id,
-                mp.player_slot,
-                mp.player_id,
-                mp.hero_id,
-                mp.kills,
-                mp.deaths,
-                mp.assists,
-                mp.gpm,
-                mp.xpm,
-                mp.win,
-            ),
+            (mp.match_id, mp.player_slot, mp.player_id, mp.hero_id,
+             mp.kills, mp.deaths, mp.assists, mp.gpm, mp.xpm, mp.win),
         )
 
 
 class IngestionLogRepository:
-    """Репозиторій для таблиці ingestion_log (Task 2.3 — Deduplication).
-
-    Відповідає за відстеження статусу інжесту кожного матчу.
-    Використовується runner-ом щоб не обробляти вже успішно збережені матчі.
-    """
-
     def __init__(self, conn: sqlite3.Connection) -> None:
         self.conn = conn
 
     def is_known(self, match_id: int) -> bool:
-        """Повертає True якщо match_id вже є в журналі зі статусом 'ok'.
-
-        Failed матчі вважаються невідомими — вони мають бути оброблені повторно.
-
-        Args:
-            match_id: ідентифікатор матчу.
-
-        Returns:
-            True якщо матч вже успішно збережено, False інакше.
-        """
         row = self.conn.execute(
             "SELECT 1 FROM ingestion_log WHERE match_id = ? AND status = 'ok'",
             (match_id,),
@@ -145,14 +104,6 @@ class IngestionLogRepository:
         return row is not None
 
     def mark_ok(self, match_id: int, ingested_at: int) -> None:
-        """Записує успішний інжест матчу.
-
-        Якщо запис вже є (наприклад був 'failed') — оновлює до 'ok'.
-
-        Args:
-            match_id: ідентифікатор матчу.
-            ingested_at: unix timestamp завершення інжесту.
-        """
         self.conn.execute(
             """
             INSERT INTO ingestion_log (match_id, status, ingested_at, error)
@@ -166,17 +117,6 @@ class IngestionLogRepository:
         )
 
     def mark_failed(self, match_id: int, ingested_at: int, error: str) -> None:
-        """Записує невдалий інжест матчу.
-
-        Якщо запис вже є — оновлює статус і текст помилки.
-        Текст помилки truncate до 500 символів.
-
-        Args:
-            match_id: ідентифікатор матчу.
-            ingested_at: unix timestamp спроби інжесту.
-            error: опис помилки.
-        """
-        truncated = error[:_MAX_ERROR_LEN]
         self.conn.execute(
             """
             INSERT INTO ingestion_log (match_id, status, ingested_at, error)
@@ -186,18 +126,10 @@ class IngestionLogRepository:
                 ingested_at = excluded.ingested_at,
                 error       = excluded.error
             """,
-            (match_id, ingested_at, truncated),
+            (match_id, ingested_at, error[:_MAX_ERROR_LEN]),
         )
 
     def get(self, match_id: int) -> IngestionLogDB | None:
-        """Повертає запис журналу для match_id або None якщо не існує.
-
-        Args:
-            match_id: ідентифікатор матчу.
-
-        Returns:
-            IngestionLogDB або None.
-        """
         row = self.conn.execute(
             "SELECT match_id, status, ingested_at, error FROM ingestion_log WHERE match_id = ?",
             (match_id,),
@@ -210,3 +142,321 @@ class IngestionLogRepository:
             ingested_at=row["ingested_at"],
             error=row["error"],
         )
+
+
+class HeroRepository:
+    def __init__(self, conn: sqlite3.Connection) -> None:
+        self.conn = conn
+
+    def upsert(self, hero: HeroDB) -> None:
+        self.conn.execute(
+            """
+            INSERT INTO heroes (id, name, localized_name, primary_attr, attack_type)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                name           = excluded.name,
+                localized_name = excluded.localized_name,
+                primary_attr   = excluded.primary_attr,
+                attack_type    = excluded.attack_type
+            """,
+            (hero.id, hero.name, hero.localized_name, hero.primary_attr, hero.attack_type),
+        )
+
+    def upsert_batch(self, heroes: list[HeroDB]) -> None:
+        self.conn.executemany(
+            """
+            INSERT INTO heroes (id, name, localized_name, primary_attr, attack_type)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                name           = excluded.name,
+                localized_name = excluded.localized_name,
+                primary_attr   = excluded.primary_attr,
+                attack_type    = excluded.attack_type
+            """,
+            [(h.id, h.name, h.localized_name, h.primary_attr, h.attack_type) for h in heroes],
+        )
+
+    def get(self, hero_id: int) -> HeroDB | None:
+        row = self.conn.execute(
+            "SELECT id, name, localized_name, primary_attr, attack_type FROM heroes WHERE id = ?",
+            (hero_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        return HeroDB(
+            id=row["id"],
+            name=row["name"],
+            localized_name=row["localized_name"],
+            primary_attr=row["primary_attr"],
+            attack_type=row["attack_type"],
+        )
+
+    def get_all(self) -> list[HeroDB]:
+        rows = self.conn.execute(
+            "SELECT id, name, localized_name, primary_attr, attack_type FROM heroes ORDER BY id"
+        ).fetchall()
+        return [
+            HeroDB(id=r["id"], name=r["name"], localized_name=r["localized_name"],
+                   primary_attr=r["primary_attr"], attack_type=r["attack_type"])
+            for r in rows
+        ]
+
+    def get_with_role(self, hero_id: int) -> tuple[HeroDB, int | None] | None:
+        """Повертає (HeroDB, primary_pos) за hero_id або None якщо герой не знайдений.
+
+        primary_pos: int 1–5 або None якщо sync_role_scores ще не запускався.
+        Маппінг primary_pos → Role виконується в app/enrich.py (не в db-шарі).
+        db-шар не імпортує з domains/ — ізоляція шарів.
+        """
+        row = self.conn.execute(
+            """
+            SELECT h.id, h.name, h.localized_name, h.primary_attr, h.attack_type,
+                   hrs.primary_pos
+            FROM heroes h
+            LEFT JOIN hero_role_scores hrs ON hrs.hero_id = h.id
+            WHERE h.id = ?
+            """,
+            (hero_id,),
+        ).fetchone()
+
+        if row is None:
+            return None
+
+        hero = HeroDB(
+            id=row["id"],
+            name=row["name"],
+            localized_name=row["localized_name"],
+            primary_attr=row["primary_attr"],
+            attack_type=row["attack_type"],
+        )
+        return hero, row["primary_pos"]  # primary_pos: int | None
+
+
+class ItemRepository:
+    def __init__(self, conn: sqlite3.Connection) -> None:
+        self.conn = conn
+
+    def upsert_batch(self, items: list[ItemDB]) -> None:
+        self.conn.executemany(
+            """
+            INSERT INTO items (id, name, localized_name, cost, secret_shop, side_shop, recipe)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                name           = excluded.name,
+                localized_name = excluded.localized_name,
+                cost           = excluded.cost,
+                secret_shop    = excluded.secret_shop,
+                side_shop      = excluded.side_shop,
+                recipe         = excluded.recipe
+            """,
+            [(i.id, i.name, i.localized_name, i.cost,
+              int(i.secret_shop), int(i.side_shop), int(i.recipe)) for i in items],
+        )
+
+    def get(self, item_id: int) -> ItemDB | None:
+        row = self.conn.execute(
+            "SELECT id, name, localized_name, cost, secret_shop, side_shop, recipe "
+            "FROM items WHERE id = ?",
+            (item_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        return ItemDB(
+            id=row["id"], name=row["name"], localized_name=row["localized_name"],
+            cost=row["cost"], secret_shop=bool(row["secret_shop"]),
+            side_shop=bool(row["side_shop"]), recipe=bool(row["recipe"]),
+        )
+
+    def get_all(self) -> list[ItemDB]:
+        rows = self.conn.execute(
+            "SELECT id, name, localized_name, cost, secret_shop, side_shop, recipe "
+            "FROM items ORDER BY id"
+        ).fetchall()
+        return [
+            ItemDB(id=r["id"], name=r["name"], localized_name=r["localized_name"],
+                   cost=r["cost"], secret_shop=bool(r["secret_shop"]),
+                   side_shop=bool(r["side_shop"]), recipe=bool(r["recipe"]))
+            for r in rows
+        ]
+
+
+class HeroRoleScoreRepository:
+    """Репозиторій для таблиці hero_role_scores (Task 3.3)."""
+
+    def __init__(self, conn: sqlite3.Connection) -> None:
+        self.conn = conn
+
+    def upsert_batch(self, scores: list[HeroRoleScoreDB]) -> None:
+        self.conn.executemany(
+            """
+            INSERT INTO hero_role_scores
+                (hero_id, pos1, pos2, pos3, pos4, pos5, flex_score, primary_pos)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(hero_id) DO UPDATE SET
+                pos1        = excluded.pos1,
+                pos2        = excluded.pos2,
+                pos3        = excluded.pos3,
+                pos4        = excluded.pos4,
+                pos5        = excluded.pos5,
+                flex_score  = excluded.flex_score,
+                primary_pos = excluded.primary_pos
+            """,
+            [(s.hero_id, s.pos1, s.pos2, s.pos3, s.pos4, s.pos5,
+              s.flex_score, s.primary_pos) for s in scores],
+        )
+
+    def get(self, hero_id: int) -> HeroRoleScoreDB | None:
+        row = self.conn.execute(
+            "SELECT hero_id, pos1, pos2, pos3, pos4, pos5, flex_score, primary_pos "
+            "FROM hero_role_scores WHERE hero_id = ?",
+            (hero_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        return HeroRoleScoreDB(
+            hero_id=row["hero_id"],
+            pos1=row["pos1"], pos2=row["pos2"], pos3=row["pos3"],
+            pos4=row["pos4"], pos5=row["pos5"],
+            flex_score=row["flex_score"], primary_pos=row["primary_pos"],
+        )
+
+    def get_by_pos(self, pos: int, min_score: int = 4) -> list[HeroRoleScoreDB]:
+        if pos not in (1, 2, 3, 4, 5):
+            raise ValueError(f"pos must be 1-5, got {pos}")
+        col = f"pos{pos}"
+        rows = self.conn.execute(
+            f"SELECT hero_id, pos1, pos2, pos3, pos4, pos5, flex_score, primary_pos "
+            f"FROM hero_role_scores WHERE {col} >= ? ORDER BY {col} DESC",
+            (min_score,),
+        ).fetchall()
+        return [HeroRoleScoreDB(
+            hero_id=r["hero_id"],
+            pos1=r["pos1"], pos2=r["pos2"], pos3=r["pos3"],
+            pos4=r["pos4"], pos5=r["pos5"],
+            flex_score=r["flex_score"], primary_pos=r["primary_pos"],
+        ) for r in rows]
+
+    def get_flex_heroes(self, min_flex: int = 4) -> list[HeroRoleScoreDB]:
+        rows = self.conn.execute(
+            "SELECT hero_id, pos1, pos2, pos3, pos4, pos5, flex_score, primary_pos "
+            "FROM hero_role_scores WHERE flex_score >= ? ORDER BY flex_score DESC",
+            (min_flex,),
+        ).fetchall()
+        return [HeroRoleScoreDB(
+            hero_id=r["hero_id"],
+            pos1=r["pos1"], pos2=r["pos2"], pos3=r["pos3"],
+            pos4=r["pos4"], pos5=r["pos5"],
+            flex_score=r["flex_score"], primary_pos=r["primary_pos"],
+        ) for r in rows]
+
+
+# ── Task 4.1: Hero Stats ──────────────────────────────────────────────────────
+
+@dataclass(slots=True)
+class HeroStatsRow:
+    """Raw агрегований рядок з DB (Task 4.1).
+
+    Це db-layer dataclass, не domain DTO.
+    Конвертація в domain DTO відбувається в app-шарі якщо потрібно.
+    """
+
+    hero_id: int
+    hero_name: str | None      # localized_name з JOIN heroes, None якщо немає запису
+    matches_played: int
+    wins: int
+    losses: int
+    winrate: float             # wins / matches_played, округлено 4 знаки; 0.0 якщо 0 матчів
+    avg_kills: float
+    avg_deaths: float
+    avg_assists: float
+    avg_gpm: float
+    avg_xpm: float
+
+
+def _build_hero_stats_row(row: sqlite3.Row) -> HeroStatsRow:
+    matches = int(row["matches_played"])
+    wins = int(row["wins"])
+    return HeroStatsRow(
+        hero_id=row["hero_id"],
+        hero_name=row["localized_name"],
+        matches_played=matches,
+        wins=wins,
+        losses=matches - wins,
+        winrate=round(wins / matches, 4) if matches > 0 else 0.0,
+        avg_kills=round(float(row["avg_kills"]), 2),
+        avg_deaths=round(float(row["avg_deaths"]), 2),
+        avg_assists=round(float(row["avg_assists"]), 2),
+        avg_gpm=round(float(row["avg_gpm"]), 2),
+        avg_xpm=round(float(row["avg_xpm"]), 2),
+    )
+
+
+_HERO_STATS_SQL = """
+    SELECT
+        mp.hero_id,
+        h.localized_name,
+        COUNT(*)        AS matches_played,
+        SUM(mp.win)     AS wins,
+        AVG(mp.kills)   AS avg_kills,
+        AVG(mp.deaths)  AS avg_deaths,
+        AVG(mp.assists) AS avg_assists,
+        AVG(mp.gpm)     AS avg_gpm,
+        AVG(mp.xpm)     AS avg_xpm
+    FROM match_players mp
+    LEFT JOIN heroes h ON h.id = mp.hero_id
+"""
+
+
+class HeroStatsRepository:
+    """Аналітичний репозиторій: winrate / pickrate / avg KDA по героях (Task 4.1).
+
+    Агрегує дані з match_players + heroes.
+    Всі методи read-only — не змінюють DB.
+    Повертає HeroStatsRow (db-layer dataclass), не domain DTO.
+    """
+
+    def __init__(self, conn: sqlite3.Connection) -> None:
+        self.conn = conn
+
+    def get_hero_stats(self, hero_id: int) -> HeroStatsRow | None:
+        """Повертає агреговану статистику по одному герою або None якщо немає матчів."""
+        row = self.conn.execute(
+            _HERO_STATS_SQL + "WHERE mp.hero_id = ? GROUP BY mp.hero_id",
+            (hero_id,),
+        ).fetchone()
+        return _build_hero_stats_row(row) if row is not None else None
+
+    def get_all_heroes_stats(self, min_matches: int = 10) -> list[HeroStatsRow]:
+        """Повертає статистику всіх героїв з кількістю матчів >= min_matches.
+
+        Відсортовано за hero_id для детермінованого порядку.
+        """
+        rows = self.conn.execute(
+            _HERO_STATS_SQL + """
+            GROUP BY mp.hero_id
+            HAVING COUNT(*) >= ?
+            ORDER BY mp.hero_id
+            """,
+            (min_matches,),
+        ).fetchall()
+        return [_build_hero_stats_row(r) for r in rows]
+
+    def get_top_by_winrate(
+        self,
+        limit: int = 10,
+        min_matches: int = 20,
+    ) -> list[HeroStatsRow]:
+        """Повертає топ героїв за winrate DESC.
+
+        min_matches фільтрує героїв з малою вибіркою (статистично ненадійні).
+        """
+        rows = self.conn.execute(
+            _HERO_STATS_SQL + """
+            GROUP BY mp.hero_id
+            HAVING COUNT(*) >= ?
+            ORDER BY (SUM(mp.win) * 1.0 / COUNT(*)) DESC
+            LIMIT ?
+            """,
+            (min_matches, limit),
+        ).fetchall()
+        return [_build_hero_stats_row(r) for r in rows]
