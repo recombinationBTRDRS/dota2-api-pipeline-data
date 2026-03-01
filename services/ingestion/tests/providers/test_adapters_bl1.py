@@ -1,9 +1,7 @@
 # services/ingestion/tests/providers/test_adapters_bl1.py
-"""Тести нових полів adapter після BL1.1 і BL1.2."""
+"""Тести adapter після BL1.1 і BL1.2."""
 from services.ingestion.providers.opendota.adapters import adapt_match, adapt_player
 
-# Значення захардкоджене в тесті — не імпортуємо приватну константу з модуля.
-# OpenDota повертає max uint32 для анонімних гравців.
 _ANON = 4_294_967_295
 
 
@@ -22,13 +20,14 @@ def _base_match(**kwargs) -> dict:
 
 
 def _base_player(**kwargs) -> dict:
+    """Mock player з правильними назвами полів OpenDota API."""
     base = {
         "hero_id": 1,
         "kills": 5,
         "deaths": 2,
         "assists": 8,
-        "gpm": 500,
-        "xpm": 600,
+        "gold_per_min": 500,   # правильна назва API
+        "xp_per_min": 600,     # правильна назва API
         "isRadiant": True,
         "win": 1,
     }
@@ -74,6 +73,35 @@ def test_adapt_player_real_account_id_preserved() -> None:
     assert result["account_id"] == 123456789
 
 
+# ── gpm / xpm — правильні назви полів ────────────────────────────────────────
+
+def test_adapt_player_gpm_from_gold_per_min() -> None:
+    """API повертає gold_per_min — має зберегтись як gpm."""
+    result = adapt_player(_base_player(gold_per_min=450), slot_index=0)
+    assert result["gpm"] == 450
+
+
+def test_adapt_player_xpm_from_xp_per_min() -> None:
+    """API повертає xp_per_min — має зберегтись як xpm."""
+    result = adapt_player(_base_player(xp_per_min=550), slot_index=0)
+    assert result["xpm"] == 550
+
+
+def test_adapt_player_gpm_missing_becomes_zero() -> None:
+    """Непарсені матчі можуть не мати gold_per_min."""
+    player = _base_player()
+    del player["gold_per_min"]
+    result = adapt_player(player, slot_index=0)
+    assert result["gpm"] == 0
+
+
+def test_adapt_player_xpm_missing_becomes_zero() -> None:
+    player = _base_player()
+    del player["xp_per_min"]
+    result = adapt_player(player, slot_index=0)
+    assert result["xpm"] == 0
+
+
 # ── lane_role і is_roaming ────────────────────────────────────────────────────
 
 def test_adapt_player_lane_role_present() -> None:
@@ -82,6 +110,7 @@ def test_adapt_player_lane_role_present() -> None:
 
 
 def test_adapt_player_lane_role_missing_is_none() -> None:
+    """Непарсені матчі не мають lane_role."""
     result = adapt_player(_base_player(), slot_index=0)
     assert result["lane_role"] is None
 
