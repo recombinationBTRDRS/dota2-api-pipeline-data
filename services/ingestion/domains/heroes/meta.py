@@ -19,8 +19,7 @@ primary_pos = позиція з найвищим балом (1=carry..5=hard_sup
 великих змінах балансу. Це статична фікстура — у майбутньому
 буде оновлюватись через analytics pipeline.
 
-'Largo' — id=155, новий герой. 'Largo' — робоча назва, англійська
-офіційна назва уточнюється при наступному sync_heroes().
+'Largo' — id=155, новий герой. Робоча назва, уточнюється при sync_heroes().
 """
 from __future__ import annotations
 
@@ -53,13 +52,10 @@ class HeroMeta:
 
 
 def _m(p1: int, p2: int, p3: int, p4: int, p5: int) -> HeroMeta:
-    """Shorthand для читабельності таблиці."""
     return HeroMeta(pos1=p1, pos2=p2, pos3=p3, pos4=p4, pos5=p5)
 
 
 # fmt: off
-# Universal hero meta: official_name → HeroMeta
-# Ключ = localized_name з OpenDota /heroes (англійська назва)
 HERO_META: dict[str, HeroMeta] = {
     #                              p1  p2  p3  p4  p5
     "Abaddon":           _m(       4,  3,  4,  3,  4),
@@ -84,6 +80,7 @@ HERO_META: dict[str, HeroMeta] = {
     "Crystal Maiden":    _m(       1,  1,  3,  4,  5),
     "Dark Seer":         _m(       2,  3,  4,  2,  2),
     "Dark Willow":       _m(       2,  3,  2,  4,  4),
+    "Dawnbreaker":       _m(       2,  3,  4,  4,  3),  # offlane/support flex
     "Dazzle":            _m(       3,  4,  4,  4,  4),
     "Death Prophet":     _m(       2,  4,  4,  4,  3),
     "Disruptor":         _m(       1,  2,  1,  4,  4),
@@ -138,6 +135,7 @@ HERO_META: dict[str, HeroMeta] = {
     "Outworld Devourer": _m(       2,  4,  2,  2,  2),
     "Pangolier":         _m(       2,  4,  4,  3,  1),
     "Phantom Assassin":  _m(       4,  3,  2,  2,  1),
+    "Phantom Lancer":    _m(       5,  3,  3,  2,  1),  # виправлено опечатку 'Lanser'
     "Phoenix":           _m(       2,  4,  4,  4,  4),
     "Primal Beast":      _m(       2,  4,  4,  3,  2),
     "Puck":              _m(       2,  5,  3,  2,  2),
