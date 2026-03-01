@@ -8,10 +8,6 @@ from services.ingestion.db.repositories.base import _EARLY_MAX, _MID_MAX
 
 @dataclass(slots=True)
 class MatchPhaseStatsRow:
-    """Статистика героя в фазі гри (db-layer, не domain DTO).
-
-    phase: 'early' | 'mid' | 'late' — по matches.duration.
-    """
     hero_id: int
     phase: str
     matches_played: int
@@ -23,11 +19,6 @@ class MatchPhaseStatsRow:
 
 @dataclass(slots=True)
 class MetaHeroRow:
-    """Meta snapshot — герой + позиція + meta_score (db-layer, не domain DTO).
-
-    meta_score = winrate * pickrate * 100, округлено 2 знаки.
-    primary_pos: int 1–5. Маппінг → Role enum виконується в app-шарі.
-    """
     hero_id: int
     hero_name: str | None
     primary_pos: int
@@ -45,11 +36,6 @@ class MatchTimelineRepository:
         self.conn = conn
 
     def get_hero_phase_stats(self, hero_id: int) -> list[MatchPhaseStatsRow]:
-        """Статистика героя по фазах (до 3 записів, порядок early→mid→late).
-
-        Фази без матчів не повертаються.
-        Пороги: early ≤ {_EARLY_MAX}s, mid ≤ {_MID_MAX}s, late > {_MID_MAX}s.
-        """
         rows = self.conn.execute(
             f"""
             SELECT
@@ -59,9 +45,9 @@ class MatchTimelineRepository:
                     WHEN m.duration <= {_MID_MAX}   THEN 'mid'
                     ELSE 'late'
                 END AS phase,
-                COUNT(*)    AS matches_played,
-                SUM(mp.win) AS wins,
-                AVG(mp.gpm) AS avg_gpm,
+                COUNT(*)      AS matches_played,
+                SUM(mp.win)   AS wins,
+                AVG(mp.gpm)   AS avg_gpm,
                 AVG(mp.kills) AS avg_kills
             FROM match_players mp
             JOIN matches m ON m.id = mp.match_id
@@ -97,13 +83,11 @@ class MatchTimelineRepository:
         primary_pos: int | None = None,
         limit: int = 10,
     ) -> list[MetaHeroRow]:
-        """Топ героїв за meta_score = winrate * pickrate * 100.
-
-        primary_pos: None = всі позиції, 1-5 = фільтр.
-        Герої без hero_role_scores виключаються (INNER JOIN).
-        """
+        """Топ героїв за meta_score = winrate * pickrate * 100."""
         if primary_pos is not None and primary_pos not in (1, 2, 3, 4, 5):
             raise ValueError(f"primary_pos must be 1-5 or None, got {primary_pos}")
+        if not isinstance(limit, int) or limit <= 0:
+            raise ValueError(f"limit must be int > 0, got {limit!r}")
 
         total_row = self.conn.execute(
             "SELECT COUNT(DISTINCT match_id) FROM match_players"

@@ -6,7 +6,6 @@ from dataclasses import dataclass
 
 @dataclass(slots=True)
 class HeroStatsRow:
-    """Агрегована статистика героя (db-layer, не domain DTO)."""
     hero_id: int
     hero_name: str | None
     matches_played: int
@@ -22,10 +21,6 @@ class HeroStatsRow:
 
 @dataclass(slots=True)
 class HeroRoleStatsRow:
-    """Агрегована статистика героя на позиції (db-layer, не domain DTO).
-
-    primary_pos: int 1–5. Маппінг → Role enum виконується в app-шарі.
-    """
     hero_id: int
     hero_name: str | None
     primary_pos: int
@@ -107,6 +102,21 @@ _HERO_ROLE_STATS_SQL = """
 """
 
 
+def _validate_min_matches(min_matches: int) -> None:
+    if not isinstance(min_matches, int) or min_matches < 0:
+        raise ValueError(f"min_matches must be int >= 0, got {min_matches!r}")
+
+
+def _validate_limit(limit: int) -> None:
+    if not isinstance(limit, int) or limit <= 0:
+        raise ValueError(f"limit must be int > 0, got {limit!r}")
+
+
+def _validate_primary_pos(primary_pos: int) -> None:
+    if primary_pos not in (1, 2, 3, 4, 5):
+        raise ValueError(f"primary_pos must be 1-5, got {primary_pos}")
+
+
 class HeroStatsRepository:
     """Read-only аналітика по героях і ролях."""
 
@@ -121,6 +131,7 @@ class HeroStatsRepository:
         return _build_hero_stats_row(row) if row is not None else None
 
     def get_all_heroes_stats(self, min_matches: int = 10) -> list[HeroStatsRow]:
+        _validate_min_matches(min_matches)
         rows = self.conn.execute(
             _HERO_STATS_SQL + """
             GROUP BY mp.hero_id
@@ -132,6 +143,8 @@ class HeroStatsRepository:
         return [_build_hero_stats_row(r) for r in rows]
 
     def get_top_by_winrate(self, limit: int = 10, min_matches: int = 20) -> list[HeroStatsRow]:
+        _validate_limit(limit)
+        _validate_min_matches(min_matches)
         rows = self.conn.execute(
             _HERO_STATS_SQL + """
             GROUP BY mp.hero_id
@@ -144,8 +157,7 @@ class HeroStatsRepository:
         return [_build_hero_stats_row(r) for r in rows]
 
     def get_hero_stats_by_role(self, hero_id: int, primary_pos: int) -> HeroRoleStatsRow | None:
-        if primary_pos not in (1, 2, 3, 4, 5):
-            raise ValueError(f"primary_pos must be 1-5, got {primary_pos}")
+        _validate_primary_pos(primary_pos)
         row = self.conn.execute(
             _HERO_ROLE_STATS_SQL + """
             WHERE mp.hero_id = ? AND hrs.primary_pos = ?
@@ -158,8 +170,9 @@ class HeroStatsRepository:
     def get_role_leaderboard(
         self, primary_pos: int, min_matches: int = 10, limit: int = 20,
     ) -> list[HeroRoleStatsRow]:
-        if primary_pos not in (1, 2, 3, 4, 5):
-            raise ValueError(f"primary_pos must be 1-5, got {primary_pos}")
+        _validate_primary_pos(primary_pos)
+        _validate_min_matches(min_matches)
+        _validate_limit(limit)
         rows = self.conn.execute(
             _HERO_ROLE_STATS_SQL + """
             WHERE hrs.primary_pos = ?

@@ -8,9 +8,13 @@ SCHEMA_PATH = Path(__file__).parent / "schema.sql"
 
 DB_PATH: Path = Path(settings.DB_PATH)
 
-# Міграції для існуючих DB — виконуються після init_db якщо колонки ще немає.
-# Додаємо сюди при кожній зміні схеми що додає нові колонки.
-# IF NOT EXISTS не працює для ALTER TABLE — тому перевіряємо через pragma.
+# Безпечні повідомлення OperationalError при ідемпотентних міграціях.
+# Будь-яка інша помилка (disk full, locked, permission) — re-raise.
+_MIGRATION_SAFE_ERRORS = (
+    "duplicate column name",
+    "already exists",
+)
+
 _MIGRATIONS = [
     # BL1.1
     "ALTER TABLE matches ADD COLUMN patch INTEGER",
@@ -18,13 +22,12 @@ _MIGRATIONS = [
     # BL1.2
     "ALTER TABLE match_players ADD COLUMN lane_role INTEGER CHECK(lane_role IS NULL OR lane_role BETWEEN 1 AND 4)",
     "ALTER TABLE match_players ADD COLUMN is_roaming BOOLEAN NOT NULL DEFAULT 0",
-    # BL1.2: індекс по lane_role — після того як колонка гарантовано існує
+    # BL1.2: індекс після того як колонка гарантовано існує
     "CREATE INDEX IF NOT EXISTS idx_match_players_lane_role ON match_players (lane_role)",
 ]
 
 
 def get_connection() -> sqlite3.Connection:
-    """Відкриває з'єднання до SQLite з row_factory та foreign keys."""
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON;")
@@ -32,14 +35,21 @@ def get_connection() -> sqlite3.Connection:
 
 
 def _run_migrations(conn: sqlite3.Connection) -> None:
-    """Виконує міграції ідемпотентно — ігнорує помилку якщо колонка вже є."""
+    """Виконує міграції ідемпотентно.
+
+    Ігнорує тільки конкретні безпечні помилки (колонка вже існує, індекс вже є).
+    Будь-яка інша OperationalError (disk full, locked) — re-raise.
+    """
     for sql in _MIGRATIONS:
         try:
             conn.execute(sql)
             conn.commit()
-        except sqlite3.OperationalError:
-            # Колонка або індекс вже існує — нормальна ситуація
-            pass
+        except sqlite3.OperationalError as e:
+            msg = str(e).lower()
+            if any(safe in msg for safe in _MIGRATION_SAFE_ERRORS):
+                pass  # ідемпотентна ситуація — OK
+            else:
+                raise
 
 
 def init_db() -> None:
