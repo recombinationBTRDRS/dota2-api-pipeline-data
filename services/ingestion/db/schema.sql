@@ -86,8 +86,10 @@ CREATE INDEX IF NOT EXISTS idx_hero_role_scores_flex
 
 -- Предмети гравців у матчі (Task 4.3).
 -- slot: 0–5 (6 item slots у Dota 2).
--- item_id = 0 означає порожній слот — не зберігається (фільтрується в persist.py).
+-- item_id > 0 — item_id=0 (порожній слот) не зберігається, фільтрується в persist.py.
 -- ON DELETE CASCADE: при видаленні match_players рядка видаляються і його items.
+-- Примітка: окремий індекс на (match_id, player_slot) не потрібен —
+-- PRIMARY KEY (match_id, player_slot, slot) вже забезпечує B-tree з цим префіксом.
 CREATE TABLE IF NOT EXISTS match_player_items (
     match_id    INTEGER NOT NULL,
     player_slot INTEGER NOT NULL,
@@ -97,6 +99,3 @@ CREATE TABLE IF NOT EXISTS match_player_items (
     FOREIGN KEY (match_id, player_slot)
         REFERENCES match_players(match_id, player_slot) ON DELETE CASCADE
 );
-
-CREATE INDEX IF NOT EXISTS idx_match_player_items_lookup
-    ON match_player_items (match_id, player_slot);

@@ -16,9 +16,7 @@ def persist_match(match: Match) -> None:
 
     Зберігає match + players + match_players + match_player_items в одній транзакції.
     item_id=0 (порожній слот) не зберігається — фільтрується тут.
-
-    Args:
-        match: провалідований Match DTO з player_slot >= 0 для кожного гравця.
+    Всі items з усіх гравців зберігаються одним batch upsert в кінці.
     """
     with UnitOfWork() as uow:
         match_repo = MatchRepository(uow.conn)
@@ -36,6 +34,8 @@ def persist_match(match: Match) -> None:
                 region=None,
             )
         )
+
+        all_item_records: list[MatchPlayerItemDB] = []
 
         for p in match.players:
             player_id = player_repo.upsert(
@@ -62,8 +62,7 @@ def persist_match(match: Match) -> None:
                 )
             )
 
-            # Зберігаємо тільки непорожні слоти (item_id > 0)
-            item_records = [
+            all_item_records.extend(
                 MatchPlayerItemDB(
                     match_id=match.id,
                     player_slot=p.player_slot,
@@ -72,6 +71,7 @@ def persist_match(match: Match) -> None:
                 )
                 for slot_idx, item_id in enumerate(p.items)
                 if item_id > 0
-            ]
-            if item_records:
-                item_repo.upsert_batch(item_records)
+            )
+
+        if all_item_records:
+            item_repo.upsert_batch(all_item_records)
