@@ -9,8 +9,8 @@ class MatchDB:
     start_time: int
     duration: int
     radiant_win: bool
-    patch: int | None
-    region: int | None
+    patch: int | None    # BL1.1: тепер заповнюється з API
+    region: int | None   # BL1.1: тепер заповнюється з API
 
 
 @dataclass(slots=True)
@@ -33,16 +33,18 @@ class MatchPlayerDB:
     xpm: int
     win: bool
     player_slot: int
+    lane_role: int | None  # BL1.2: реальна позиція (1-4), None якщо API не повернув
+    is_roaming: bool        # BL1.2: pos4 (False) vs pos5/roaming (True)
 
 
 @dataclass(slots=True)
 class MatchPlayerItemDB:
-    """Один предмет гравця у матчі (Task 4.3).
+    """Один предмет гравця у матчі.
 
     slot: 0–5 (6 item slots у Dota 2).
     item_id > 0 — item_id=0 (порожній слот) не зберігається, фільтрується в persist.py.
+    BL1.3: backpack (6-8) і item_neutral — майбутнє розширення.
     """
-
     match_id: int
     player_slot: int
     slot: int     # 0–5
@@ -59,8 +61,6 @@ class IngestionLogDB:
 
 @dataclass(slots=True)
 class HeroDB:
-    """DB-представлення героя Dota 2 (Task 3.1)."""
-
     id: int
     name: str
     localized_name: str
@@ -70,8 +70,6 @@ class HeroDB:
 
 @dataclass(slots=True)
 class ItemDB:
-    """DB-представлення предмету Dota 2 (Task 3.2)."""
-
     id: int
     name: str
     localized_name: str
@@ -83,8 +81,6 @@ class ItemDB:
 
 @dataclass(slots=True)
 class HeroRoleScoreDB:
-    """DB-представлення бальної оцінки героя по позиціях (Task 3.3)."""
-
     hero_id: int
     pos1: int
     pos2: int

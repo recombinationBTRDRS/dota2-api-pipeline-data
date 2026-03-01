@@ -30,8 +30,8 @@ def persist_match(match: Match) -> None:
                 start_time=match.start_time,
                 duration=match.duration,
                 radiant_win=match.radiant_win,
-                patch=None,
-                region=None,
+                patch=match.patch,    # BL1.1: тепер з DTO
+                region=match.region,  # BL1.1: тепер з DTO
             )
         )
 
@@ -59,6 +59,8 @@ def persist_match(match: Match) -> None:
                     xpm=p.xpm,
                     win=p.win,
                     player_slot=p.player_slot,
+                    lane_role=p.lane_role,      # BL1.2: реальна позиція
+                    is_roaming=p.is_roaming,    # BL1.2: pos4 vs pos5
                 )
             )
 

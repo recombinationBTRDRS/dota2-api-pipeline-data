@@ -66,16 +66,66 @@ def test_match_player_upsert_idempotent(db):
             kills=10, deaths=2, assists=5,
             gpm=600, xpm=700, win=True,
             player_slot=0,
+            lane_role=1,       # BL1.2
+            is_roaming=False,  # BL1.2
         )
         repo = MatchPlayerRepository(uow.conn)
         repo.upsert(mp)
         repo.upsert(mp)
 
     with get_connection() as conn:
-        # перевіряємо всі три таблиці — повна ідемпотентність
         assert conn.execute("SELECT COUNT(*) FROM matches").fetchone()[0] == 1
         assert conn.execute("SELECT COUNT(*) FROM players").fetchone()[0] == 1
         assert conn.execute("SELECT COUNT(*) FROM match_players").fetchone()[0] == 1
+
+
+def test_match_player_lane_role_stored(db):
+    """lane_role і is_roaming зберігаються і читаються коректно."""
+    match = MatchDB(id=2, start_time=0, duration=2000, radiant_win=False, patch=38, region=1)
+    player = PlayerDB(id=None, account_id=99, rank_tier=None, mmr=None)
+
+    with UnitOfWork() as uow:
+        MatchRepository(uow.conn).upsert(match)
+        player_id = PlayerRepository(uow.conn).upsert(player)
+        MatchPlayerRepository(uow.conn).upsert(MatchPlayerDB(
+            match_id=2, player_id=player_id, hero_id=10,
+            kills=3, deaths=1, assists=4,
+            gpm=450, xpm=500, win=False,
+            player_slot=1,
+            lane_role=4,      # support
+            is_roaming=True,  # hard support / roaming → pos5
+        ))
+
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT lane_role, is_roaming FROM match_players WHERE player_slot = 1"
+        ).fetchone()
+        assert row["lane_role"] == 4
+        assert bool(row["is_roaming"]) is True
+
+
+def test_match_player_lane_role_nullable(db):
+    """lane_role може бути NULL (старі матчі або API не повернув)."""
+    match = MatchDB(id=3, start_time=0, duration=1500, radiant_win=True, patch=None, region=None)
+    player = PlayerDB(id=None, account_id=77, rank_tier=None, mmr=None)
+
+    with UnitOfWork() as uow:
+        MatchRepository(uow.conn).upsert(match)
+        player_id = PlayerRepository(uow.conn).upsert(player)
+        MatchPlayerRepository(uow.conn).upsert(MatchPlayerDB(
+            match_id=3, player_id=player_id, hero_id=5,
+            kills=0, deaths=5, assists=2,
+            gpm=300, xpm=350, win=True,
+            player_slot=2,
+            lane_role=None,    # NULL — OK
+            is_roaming=False,
+        ))
+
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT lane_role FROM match_players WHERE player_slot = 2"
+        ).fetchone()
+        assert row["lane_role"] is None
 
 
 def test_rollback_on_error(db):

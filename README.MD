@@ -1,7 +1,7 @@
 # Dota 2 Analytics Pipeline
 
 Аналітична платформа для Dota 2: збір матчів з OpenDota API, нормалізація,
-збереження в SQLite та побудова статистики по героях, білдах і ролях.
+побудова pre-computed статистики по героях, білдах і ролях.
 
 ## Статус
 
@@ -12,10 +12,12 @@
 | 1 | Ingestion Service MVP | ✅ Done |
 | 2 | Match Discovery Service | ✅ Done |
 | 3 | Domain Model (Heroes, Items, Roles) | ✅ Done |
-| 4 | Analytics Engine | 🔜 Next |
-| 5 | Recommendation Engine | ⏳ Backlog |
-| 6 | Public API | ⏳ Backlog |
-| 7 | Scale & Production | ⏳ Backlog |
+| 4 | Analytics Engine | ✅ Done |
+| R1 | Project Health, Refactor & Audit | 🔜 Next |
+| 5 | Pre-computed Data Layer | ⏳ Backlog |
+| 6 | Frontend (React) | ⏳ Backlog |
+| 7 | Recommendation Engine | ⏳ Backlog |
+| 8 | Public API & Scale | ⏳ Backlog |
 
 ---
 
@@ -24,40 +26,31 @@
 ```
 OpenDota API
     │
-    ├─ /heroes ──────────────────► sync_heroes()
-    ├─ /constants/items ─────────► sync_items()
-    │                                   │
-    │                             heroes / items tables
-    │                                   │
-    │                             sync_role_scores()
-    │                             (HERO_META + OPENDOTA_HERO_IDS)
-    │                                   │
-    │                          hero_role_scores table
+    ├─ /heroes, /constants/items ────► sync jobs → heroes, items tables
     │
-    ├─ /matches/{id} ────────────► ingest_match()
-    │       │
-    │   adapters.py           raw JSON → contract dict
-    │   parsers.py            contract dict → Match DTO
-    │   persist.py            domain → DB models
-    │       │
-    │  matches / players / match_players tables
+    ├─ /matches/{id} ────────────────► ingest_match()
+    │   adapters → parsers → persist
+    │   matches / players / match_players / match_player_items
     │
-    └─ Explorer API ─────────────► match discovery (Epic 2)
+    └─ Explorer API ─────────────────► match discovery (Epic 2)
 
-                    ▼
-             enrich_match()
-    Match DTO + HeroRepository → EnrichedPlayerStats
-    (hero_name, primary_attr, attack_type, role)
+                    ↓
+         Pre-computed Batch Jobs (Epic 5)
+    hero_aggregated_stats / hero_matchup_stats / hero_item_build_stats
 
-                    ▼
-           Analytics Engine (Epic 4)
+                    ↓
+           Analytics API (Epic 4)
+    /heroes/{id}/stats  /analytics/meta  /analytics/leaderboard/{pos}
+
+                    ↓
+           Frontend (Epic 6)
 ```
 
-**Ізоляція шарів:**
-- `domains/` — чиста бізнес-логіка, без DB і HTTP
-- `providers/` — тільки HTTP, без DB
-- `db/` — тільки persistence, без domain logic
-- `app/` — orchestration: з'єднує шари
+**Шари:**
+- `providers/` — тільки HTTP, raw JSON → dict
+- `domains/` — dict → Pydantic DTO, бізнес-сутності
+- `db/` — persistence, repositories
+- `app/` — orchestration, з'єднує шари
 
 ---
 
@@ -68,45 +61,50 @@ git clone https://github.com/recombinationBTRDRS/dota2-api-pipeline-data.git
 cd dota2-api-pipeline-data
 
 python -m venv venv
-# Windows:
-venv\Scripts\activate
-# Linux/macOS:
-source venv/bin/activate
+venv\Scripts\activate      # Windows
+source venv/bin/activate   # Linux/macOS
 
 pip install -r requirements.txt
 pip install -r requirements-dev.txt
-```
-
-Скопіюй `.env.example` → `.env`:
-
-```bash
 cp .env.example .env
-```
 
-Запуск сервісу:
-
-```bash
 uvicorn services.ingestion.app.main:app --reload
 ```
 
-Health check:
-
 ```bash
 curl http://localhost:8000/health
-# {"status": "ok"}
+# {"status": "ok", "db_ok": true}
 ```
+
+---
+
+## Analytics API
+
+| Endpoint | Опис |
+|----------|------|
+| `GET /heroes/{id}/stats` | Winrate, KDA, GPM для героя |
+| `GET /heroes/{id}/stats/role/{pos}` | Статистика на конкретній позиції (1-5) |
+| `GET /heroes/{id}/items` | Топ items за pickrate |
+| `GET /analytics/meta` | Meta snapshot: winrate × pickrate |
+| `GET /analytics/leaderboard/{pos}` | Топ героїв на позиції |
+| `GET /analytics/hero/{id}/timeline` | Early/mid/late game статистика |
+
+Документація: `http://localhost:8000/docs`
 
 ---
 
 ## Змінні середовища
 
-| Змінна | За замовчуванням | Опис |
-|--------|-----------------|------|
-| `OPENDOTA_BASE_URL` | `https://api.opendota.com/api` | Base URL OpenDota API |
+| Змінна | Default | Опис |
+|--------|---------|------|
+| `OPENDOTA_BASE_URL` | `https://api.opendota.com/api` | Base URL |
 | `OPENDOTA_RATE_LIMIT` | `60` | Запитів на хвилину |
-| `OPENDOTA_TIMEOUT` | `30` | HTTP timeout (секунди) |
-| `OPENDOTA_RETRIES` | `3` | Кількість retry при 429/5xx |
-| `DB_PATH` | `services/ingestion/db/data.sqlite` | Шлях до SQLite файлу |
+| `OPENDOTA_TIMEOUT` | `30` | HTTP timeout (сек) |
+| `OPENDOTA_RETRIES` | `3` | Retry при 429/5xx |
+| `DISCOVERY_LOBBY_TYPE` | `7` | 7 = ranked |
+| `DISCOVERY_MIN_MMR` | `3000` | Мінімальний MMR |
+| `DISCOVERY_INTERVAL_SEC` | `300` | Секунд між циклами |
+| `DB_PATH` | `services/ingestion/db/data.sqlite` | SQLite файл |
 | `LOG_LEVEL` | `INFO` | Рівень логування |
 
 ---
@@ -114,79 +112,61 @@ curl http://localhost:8000/health
 ## Розробка
 
 ```bash
-# Тести
 pytest -q
-
-# Lint
 ruff check .
-
-# Type check
 python -m mypy services/ --ignore-missing-imports --explicit-package-bases
 ```
 
 ---
 
-## Структура репозиторію
+## Структура
 
 ```
 services/ingestion/
 ├── app/
 │   ├── config.py             ← pydantic-settings
-│   ├── enrich.py             ← enrich_match(): Match → EnrichedPlayerStats
-│   ├── ingest_match.py       ← orchestration: fetch → adapt → parse → persist
-│   ├── main.py               ← FastAPI app, /health
-│   ├── persist.py            ← domain → DB
-│   ├── sync_heroes.py        ← sync heroes від OpenDota → DB
-│   ├── sync_items.py         ← sync items від OpenDota → DB
-│   └── sync_role_scores.py   ← join HERO_META + hero_id_map → DB
+│   ├── main.py               ← FastAPI, /health, /stats
+│   ├── routers/analytics.py  ← analytics endpoints
+│   ├── enrich.py             ← Match + HeroRepository → EnrichedPlayerStats
+│   ├── ingest_match.py       ← orchestration pipeline
+│   ├── persist.py            ← domain → DB (транзакція)
+│   ├── sync_heroes.py
+│   ├── sync_items.py
+│   └── sync_role_scores.py
 ├── db/
-│   ├── models.py             ← DB dataclasses
-│   ├── repositories.py       ← всі репозиторії
-│   ├── schema.sql            ← DDL: matches, players, heroes, items, hero_role_scores
-│   ├── sqlite.py             ← connection, init_db
-│   └── unit_of_work.py       ← атомарні транзакції
+│   ├── models.py
+│   ├── repositories.py       ← → рефактор в Epic R1
+│   ├── schema.sql
+│   ├── sqlite.py
+│   └── unit_of_work.py
 ├── domains/
-│   ├── heroes/
-│   │   ├── dtos.py           ← Hero, EnrichedPlayerStats (pydantic)
-│   │   ├── meta.py           ← HeroMeta + HERO_META[name→scores], 125 героїв
-│   │   └── parsers.py
+│   ├── heroes/               ← Hero, EnrichedPlayerStats, HERO_META (125 heroes)
 │   ├── items/
-│   │   ├── dtos.py
-│   │   └── parsers.py
-│   ├── matches/
-│   │   ├── dtos.py           ← Match, PlayerMatchStats
-│   │   └── parsers.py
-│   ├── roles/
-│   │   └── dtos.py           ← Role enum (CARRY=1..HARD_SUPPORT=5)
+│   ├── matches/              ← Match, PlayerMatchStats
+│   ├── roles/                ← Role enum
 │   └── discovery/
-│       ├── dtos.py
-│       └── query_builder.py
 ├── providers/opendota/
-│   ├── hero_id_map.py        ← OPENDOTA_HERO_IDS[name→id], 125 героїв
-│   ├── heroes_client.py
-│   ├── items_client.py
+│   ├── client.py / async_client.py
 │   ├── adapters.py
-│   ├── client.py
-│   ├── async_client.py
+│   ├── hero_id_map.py        ← static name→id map
 │   └── explorer_client.py
 └── tests/
-    ├── app/                  ← unit: enrich, ingest, persist
-    ├── db/                   ← unit: repositories
-    ├── domains/              ← unit: parsers, meta, roles
-    ├── integration/          ← real SQLite: sync flows
-    ├── providers/            ← mock HTTP: clients
-    └── e2e/                  ← full cycle sync → enrich → assert
+    ├── app/ db/ domains/ providers/
+    ├── integration/
+    └── e2e/
 ```
+
+---
+
+## Документація
+
+- [`docs/architecture.md`](docs/architecture.md) — knowledge snapshot: модулі, таблиці, gaps
+- [`docs/epics-and-tasks.md`](docs/epics-and-tasks.md) — повний roadmap
+- [`docs/high-level-plan.md`](docs/high-level-plan.md) — фазова карта продукту
 
 ---
 
 ## Технології
 
-- **Python 3.11+**
-- **FastAPI 0.115** + Uvicorn
-- **Pydantic v2** + pydantic-settings
-- **SQLite** (dev) → PostgreSQL (prod, Epic 7)
-- **httpx** (async) + **requests** (sync)
-- **pytest** + pytest-asyncio
-- **ruff** (lint) + **mypy** (type check)
-- **GitHub Actions** (CI)
+**Python 3.11** · **FastAPI 0.115** · **Pydantic v2** · **SQLite** → PostgreSQL (Epic 8)
+**httpx** · **requests** · **pytest** · **ruff** · **mypy** · **GitHub Actions**
