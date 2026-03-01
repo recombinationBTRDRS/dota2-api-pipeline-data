@@ -1,12 +1,5 @@
 # services/ingestion/db/repositories/matches.py
-"""Репозиторії для матчів і логу інгестації.
-
-Класи:
-    MatchRepository          — matches table
-    MatchPlayerRepository    — match_players table
-    MatchPlayerItemRepository— match_player_items table
-    IngestionLogRepository   — ingestion_log table
-"""
+"""Репозиторії для матчів і логу інгестації."""
 import sqlite3
 
 from services.ingestion.db.models import (
@@ -50,38 +43,34 @@ class MatchPlayerRepository:
             """
             INSERT INTO match_players
                 (match_id, player_slot, player_id, hero_id,
-                 kills, deaths, assists, gpm, xpm, win)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 kills, deaths, assists, gpm, xpm, win,
+                 lane_role, is_roaming)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(match_id, player_slot) DO UPDATE SET
-                player_id = excluded.player_id,
-                hero_id   = excluded.hero_id,
-                kills     = excluded.kills,
-                deaths    = excluded.deaths,
-                assists   = excluded.assists,
-                gpm       = excluded.gpm,
-                xpm       = excluded.xpm,
-                win       = excluded.win
+                player_id  = excluded.player_id,
+                hero_id    = excluded.hero_id,
+                kills      = excluded.kills,
+                deaths     = excluded.deaths,
+                assists    = excluded.assists,
+                gpm        = excluded.gpm,
+                xpm        = excluded.xpm,
+                win        = excluded.win,
+                lane_role  = excluded.lane_role,
+                is_roaming = excluded.is_roaming
             """,
             (mp.match_id, mp.player_slot, mp.player_id, mp.hero_id,
-             mp.kills, mp.deaths, mp.assists, mp.gpm, mp.xpm, mp.win),
+             mp.kills, mp.deaths, mp.assists, mp.gpm, mp.xpm, mp.win,
+             mp.lane_role, int(mp.is_roaming)),
         )
 
 
 class MatchPlayerItemRepository:
-    """Зберігає предмети гравців у матчі.
-
-    Write-only — читання через ItemBuildRepository (analytics/item_build.py).
-    """
+    """Write-only — читання через ItemBuildRepository."""
 
     def __init__(self, conn: sqlite3.Connection) -> None:
         self.conn = conn
 
     def upsert_batch(self, items: list[MatchPlayerItemDB]) -> None:
-        """Ідемпотентне збереження.
-
-        DO UPDATE — відповідає архітектурному правилу upsert.
-        Items є immutable після матчу (snapshot кінцевого стану).
-        """
         self.conn.executemany(
             """
             INSERT INTO match_player_items (match_id, player_slot, slot, item_id)

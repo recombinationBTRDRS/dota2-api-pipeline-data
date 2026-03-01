@@ -29,6 +29,13 @@ CREATE TABLE IF NOT EXISTS match_players (
     gpm         INTEGER NOT NULL,
     xpm         INTEGER NOT NULL,
     win         BOOLEAN NOT NULL,
+
+    -- BL1.2: реальна позиція гравця в матчі (OpenDota lane_role)
+    lane_role   INTEGER CHECK(lane_role IS NULL OR lane_role BETWEEN 1 AND 4),
+
+    -- BL1.2: soft support (0) vs hard support / roaming (1)
+    is_roaming  BOOLEAN NOT NULL DEFAULT 0,
+
     PRIMARY KEY (match_id, player_slot),
     FOREIGN KEY (match_id)  REFERENCES matches(id)  ON DELETE CASCADE,
     FOREIGN KEY (player_id) REFERENCES players(id)  ON DELETE SET NULL
@@ -36,8 +43,9 @@ CREATE TABLE IF NOT EXISTS match_players (
 
 CREATE INDEX IF NOT EXISTS idx_match_players_match_id
     ON match_players (match_id);
-CREATE INDEX IF NOT EXISTS idx_match_players_player_id
-    ON match_players (player_id);
+
+CREATE INDEX IF NOT EXISTS idx_match_players_hero_id
+    ON match_players (hero_id);
 
 CREATE TABLE IF NOT EXISTS ingestion_log (
     match_id    INTEGER PRIMARY KEY,
@@ -46,7 +54,6 @@ CREATE TABLE IF NOT EXISTS ingestion_log (
     error       TEXT
 );
 
--- Герої Dota 2 (Task 3.1).
 CREATE TABLE IF NOT EXISTS heroes (
     id              INTEGER PRIMARY KEY,
     name            TEXT    NOT NULL UNIQUE,
@@ -55,18 +62,16 @@ CREATE TABLE IF NOT EXISTS heroes (
     attack_type     TEXT    NOT NULL CHECK(attack_type IN ('Melee', 'Ranged'))
 );
 
--- Предмети Dota 2 (Task 3.2).
 CREATE TABLE IF NOT EXISTS items (
-    id          INTEGER PRIMARY KEY,
-    name        TEXT    NOT NULL UNIQUE,
-    localized_name TEXT NOT NULL,
-    cost        INTEGER NOT NULL DEFAULT 0 CHECK(cost >= 0),
-    secret_shop INTEGER NOT NULL DEFAULT 0 CHECK(secret_shop IN (0, 1)),
-    side_shop   INTEGER NOT NULL DEFAULT 0 CHECK(side_shop IN (0, 1)),
-    recipe      INTEGER NOT NULL DEFAULT 0 CHECK(recipe IN (0, 1))
+    id             INTEGER PRIMARY KEY,
+    name           TEXT    NOT NULL UNIQUE,
+    localized_name TEXT    NOT NULL,
+    cost           INTEGER NOT NULL DEFAULT 0 CHECK(cost >= 0),
+    secret_shop    INTEGER NOT NULL DEFAULT 0 CHECK(secret_shop IN (0, 1)),
+    side_shop      INTEGER NOT NULL DEFAULT 0 CHECK(side_shop IN (0, 1)),
+    recipe         INTEGER NOT NULL DEFAULT 0 CHECK(recipe IN (0, 1))
 );
 
--- Бальна оцінка героїв по позиціях (Task 3.3).
 CREATE TABLE IF NOT EXISTS hero_role_scores (
     hero_id     INTEGER PRIMARY KEY,
     pos1        INTEGER NOT NULL CHECK(pos1 BETWEEN 1 AND 5),
@@ -81,15 +86,15 @@ CREATE TABLE IF NOT EXISTS hero_role_scores (
 
 CREATE INDEX IF NOT EXISTS idx_hero_role_scores_primary_pos
     ON hero_role_scores (primary_pos);
+
 CREATE INDEX IF NOT EXISTS idx_hero_role_scores_flex
     ON hero_role_scores (flex_score);
 
--- Предмети гравців у матчі (Task 4.3).
--- slot: 0–5 (6 item slots у Dota 2).
--- item_id > 0 — item_id=0 (порожній слот) не зберігається, фільтрується в persist.py.
--- ON DELETE CASCADE: при видаленні match_players рядка видаляються і його items.
--- Примітка: окремий індекс на (match_id, player_slot) не потрібен —
--- PRIMARY KEY (match_id, player_slot, slot) вже забезпечує B-tree з цим префіксом.
+-- Предмети гравців у матчі.
+-- slot: 0–5 (6 item slots).
+-- item_id > 0 — порожні слоти (0) фільтруються в persist.py.
+-- BL1.3: backpack (6-8) і item_neutral — майбутнє розширення.
+-- PRIMARY KEY вже покриває (match_id, player_slot) — окремий індекс не потрібен.
 CREATE TABLE IF NOT EXISTS match_player_items (
     match_id    INTEGER NOT NULL,
     player_slot INTEGER NOT NULL,
