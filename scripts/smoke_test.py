@@ -5,7 +5,7 @@
 Запуск:
     python scripts/smoke_test.py
 
-Повертає exit code 1 якщо є failures — придатний для CI/CD.
+Повертає exit code 1 якщо є failures.
 """
 import sys
 import traceback
@@ -14,15 +14,7 @@ from pathlib import Path
 ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT))
 
-TEST_DB = ROOT / "services" / "ingestion" / "db" / "smoke_test.sqlite"
 MATCH_ID = 8_709_253_716
-
-import services.ingestion.db.sqlite as sqlite_module  # noqa: E402
-
-sqlite_module.DB_PATH = TEST_DB
-
-from services.ingestion.db.sqlite import init_db  # noqa: E402
-from services.ingestion.db.unit_of_work import UnitOfWork  # noqa: E402
 
 PASS = "✅"
 FAIL = "❌"
@@ -33,7 +25,6 @@ INFO = "   "
 def section(title: str) -> None:
     print(f"\n{'─' * 55}\n  {title}\n{'─' * 55}")
 
-
 def ok(msg: str) -> None:   print(f"  {PASS}  {msg}")
 def fail(msg: str) -> None: print(f"  {FAIL}  {msg}")
 def warn(msg: str) -> None: print(f"  {WARN} {msg}")
@@ -41,6 +32,27 @@ def info(msg: str) -> None: print(f"  {INFO}  {msg}")
 
 
 def main() -> None:
+    import services.ingestion.db.sqlite as sqlite_module
+
+    TEST_DB = ROOT / "services" / "ingestion" / "db" / "smoke_test.sqlite"
+    orig_db_path = sqlite_module.DB_PATH
+
+    # DB_PATH підміняється тут — не на рівні імпорту
+    sqlite_module.DB_PATH = TEST_DB
+
+    try:
+        _run(TEST_DB, sqlite_module)
+    finally:
+        sqlite_module.DB_PATH = orig_db_path
+        if TEST_DB.exists():
+            TEST_DB.unlink()
+            info("smoke_test.sqlite видалено")
+
+
+def _run(TEST_DB: Path, sqlite_module: object) -> None:
+    from services.ingestion.db.sqlite import init_db
+    from services.ingestion.db.unit_of_work import UnitOfWork
+
     failures: list[str] = []
 
     print(f"\n{'═' * 55}")
@@ -70,25 +82,17 @@ def main() -> None:
         if count >= 120:
             ok(f"Завантажено {count} героїв")
         else:
-            warn(f"Завантажено {count} героїв — очікувалось >= 120")
+            fail(f"Завантажено {count} героїв — очікувалось >= 120")
             failures.append(f"sync_heroes: {count} < 120")
 
         with UnitOfWork() as uow:
-            sample = uow.conn.execute(
-                "SELECT id, name, localized_name FROM heroes ORDER BY id LIMIT 5"
-            ).fetchall()
-            info("Перші 5 героїв (id | name | localized_name):")
-            for r in sample:
-                info(f"  {r['id']:>4}  {r['name']:<30}  {r['localized_name']}")
-
             am = uow.conn.execute(
-                "SELECT id, name, localized_name FROM heroes "
-                "WHERE name LIKE '%antimage%' OR localized_name LIKE '%Anti%'"
+                "SELECT id, name FROM heroes WHERE name LIKE '%antimage%'"
             ).fetchone()
             if am:
-                ok(f"Anti-Mage: id={am['id']}, name='{am['name']}'")
+                ok(f"Anti-Mage: id={am['id']} ✓")
             else:
-                warn("Anti-Mage не знайдений")
+                fail("Anti-Mage не знайдений")
                 failures.append("Anti-Mage not found")
 
     except Exception as e:
@@ -104,7 +108,7 @@ def main() -> None:
         if count >= 200:
             ok(f"Завантажено {count} items")
         else:
-            warn(f"Завантажено {count} — очікувалось >= 200")
+            fail(f"Завантажено {count} — очікувалось >= 200")
             failures.append(f"sync_items: {count} < 200")
     except Exception as e:
         fail(f"sync_items() crashed: {e}")
@@ -119,19 +123,17 @@ def main() -> None:
         if count >= 120:
             ok(f"Збережено {count} role score записів")
         else:
-            warn(f"Збережено {count} — очікувалось >= 120")
+            fail(f"Збережено {count} — очікувалось >= 120")
             failures.append(f"sync_role_scores: {count} < 120")
 
         with UnitOfWork() as uow:
-            new_heroes = uow.conn.execute(
-                "SELECT h.id, h.name, h.localized_name FROM heroes h "
-                "WHERE NOT EXISTS "
-                "(SELECT 1 FROM hero_role_scores WHERE hero_id = h.id)"
+            missing = uow.conn.execute(
+                "SELECT h.localized_name FROM heroes h "
+                "WHERE NOT EXISTS (SELECT 1 FROM hero_role_scores WHERE hero_id = h.id)"
             ).fetchall()
-            if new_heroes:
-                warn(f"{len(new_heroes)} героїв без role scores (немає в HERO_META):")
-                for h in new_heroes:
-                    info(f"  id={h['id']} name='{h['name']}' localized='{h['localized_name']}'")
+            if missing:
+                warn(f"{len(missing)} героїв без role scores: "
+                     f"{[r['localized_name'] for r in missing]}")
             else:
                 ok("Всі герої мають role scores ✓")
 
@@ -155,52 +157,53 @@ def main() -> None:
                 (MATCH_ID,),
             ).fetchone()
 
-            if match_row:
-                ok(f"matches: duration={match_row['duration']}s, "
-                   f"radiant_win={bool(match_row['radiant_win'])}")
+            if not match_row:
+                fail("Матч не знайдений в matches")
+                failures.append("match not in DB")
+            else:
+                ok(f"duration={match_row['duration']}s, radiant_win={bool(match_row['radiant_win'])}")
+
                 if match_row["patch"] is not None:
                     ok(f"patch={match_row['patch']} ✓")
                 else:
-                    warn("patch is NULL")
+                    fail("patch is NULL — BL1.1 regression")
+                    failures.append("patch is NULL")
+
                 if match_row["region"] is not None:
                     ok(f"region={match_row['region']} ✓")
                 else:
-                    warn("region is NULL")
-            else:
-                fail("Матч не знайдений в matches")
-                failures.append("match not in DB")
+                    fail("region is NULL — BL1.1 regression")
+                    failures.append("region is NULL")
 
             mp_count = conn.execute(
-                "SELECT COUNT(*) FROM match_players WHERE match_id = ?",
-                (MATCH_ID,),
+                "SELECT COUNT(*) FROM match_players WHERE match_id = ?", (MATCH_ID,),
             ).fetchone()[0]
             if mp_count == 10:
                 ok(f"match_players: {mp_count}/10 ✓")
             else:
-                warn(f"match_players: {mp_count} (очікувалось 10)")
+                fail(f"match_players: {mp_count} (очікувалось 10)")
                 failures.append(f"match_players count={mp_count}")
 
+            # lane_role — warn тільки (залежить від парсингу replay, не від нас)
             players = conn.execute(
-                "SELECT mp.player_slot, mp.hero_id, h.localized_name, "
-                "mp.lane_role, mp.is_roaming, mp.win, mp.gpm, mp.kills "
-                "FROM match_players mp "
-                "LEFT JOIN heroes h ON h.id = mp.hero_id "
-                "WHERE mp.match_id = ? ORDER BY mp.player_slot",
-                (MATCH_ID,),
+                "SELECT mp.player_slot, h.localized_name, mp.lane_role, "
+                "mp.is_roaming, mp.win, mp.gpm, mp.kills "
+                "FROM match_players mp LEFT JOIN heroes h ON h.id = mp.hero_id "
+                "WHERE mp.match_id = ? ORDER BY mp.player_slot", (MATCH_ID,),
             ).fetchall()
 
             lane_nulls = sum(1 for p in players if p["lane_role"] is None)
             if lane_nulls == 0:
                 ok(f"lane_role заповнений для всіх {len(players)} гравців ✓")
             else:
-                warn(f"lane_role NULL для {lane_nulls}/{len(players)} — матч не парсений")
+                warn(f"lane_role NULL для {lane_nulls}/{len(players)} — матч не парсений (OK)")
 
             print()
             print(f"  {'slot':>4}  {'hero':<22}  {'lane':>4}  {'roam':>5}  "
                   f"{'win':>5}  {'gpm':>4}  {'kills':>5}")
             print(f"  {'─'*4}  {'─'*22}  {'─'*4}  {'─'*5}  {'─'*5}  {'─'*4}  {'─'*5}")
             for p in players:
-                name = (p["localized_name"] or f"id={p['hero_id']}")[:22]
+                name = (p["localized_name"] or "?")[:22]
                 print(f"  {p['player_slot']:>4}  {name:<22}  "
                       f"{str(p['lane_role']):>4}  {str(bool(p['is_roaming'])):>5}  "
                       f"{str(bool(p['win'])):>5}  {p['gpm']:>4}  {p['kills']:>5}")
@@ -215,13 +218,13 @@ def main() -> None:
                 failures.append(f"anonymous sentinel: {anon}")
 
             items_count = conn.execute(
-                "SELECT COUNT(*) FROM match_player_items WHERE match_id = ?",
-                (MATCH_ID,),
+                "SELECT COUNT(*) FROM match_player_items WHERE match_id = ?", (MATCH_ID,),
             ).fetchone()[0]
             if items_count > 0:
                 ok(f"match_player_items: {items_count} записів ✓")
             else:
-                warn("match_player_items: 0 записів")
+                fail("match_player_items: 0 записів")
+                failures.append("match_player_items empty")
 
     except Exception as e:
         fail(f"ingest_match() crashed: {e}")
@@ -233,29 +236,25 @@ def main() -> None:
     try:
         with UnitOfWork() as uow:
             conn = uow.conn
-
-            from services.ingestion.db.repositories.analytics.hero_stats import (
-                HeroStatsRepository,
-            )
+            from services.ingestion.db.repositories.analytics.hero_stats import HeroStatsRepository
             from services.ingestion.db.repositories.analytics.timeline import (
                 MatchTimelineRepository,
             )
 
             hero_row = conn.execute(
                 "SELECT mp.hero_id, h.localized_name FROM match_players mp "
-                "LEFT JOIN heroes h ON h.id = mp.hero_id "
-                "WHERE mp.match_id = ? LIMIT 1",
+                "LEFT JOIN heroes h ON h.id = mp.hero_id WHERE mp.match_id = ? LIMIT 1",
                 (MATCH_ID,),
             ).fetchone()
-            test_hero_id = hero_row["hero_id"] if hero_row else 1
-            test_hero_name = (hero_row["localized_name"] or str(test_hero_id)) if hero_row else "?"
+            hid = hero_row["hero_id"] if hero_row else 1
+            hname = (hero_row["localized_name"] or str(hid)) if hero_row else "?"
 
-            stats = HeroStatsRepository(conn).get_hero_stats(test_hero_id)
+            stats = HeroStatsRepository(conn).get_hero_stats(hid)
             if stats:
-                ok(f"HeroStats {test_hero_name}: "
-                   f"matches={stats.matches_played}, wr={stats.winrate}, gpm={stats.avg_gpm}")
+                ok(f"HeroStats {hname}: matches={stats.matches_played}, "
+                   f"wr={stats.winrate}, gpm={stats.avg_gpm}")
             else:
-                warn(f"HeroStats: немає даних для {test_hero_name}")
+                warn(f"HeroStats: немає даних для {hname}")
 
             meta = MatchTimelineRepository(conn).get_meta_snapshot(limit=5)
             if meta:
@@ -266,11 +265,11 @@ def main() -> None:
             else:
                 warn("MetaSnapshot: порожньо (замало матчів)")
 
-            timeline = MatchTimelineRepository(conn).get_hero_phase_stats(test_hero_id)
-            if timeline:
-                ok(f"Timeline {test_hero_name}: {[t.phase for t in timeline]}")
+            tl = MatchTimelineRepository(conn).get_hero_phase_stats(hid)
+            if tl:
+                ok(f"Timeline {hname}: {[t.phase for t in tl]}")
             else:
-                warn(f"Timeline: немає даних для {test_hero_name}")
+                warn(f"Timeline: немає даних для {hname}")
 
     except Exception as e:
         fail(f"Analytics crashed: {e}")
@@ -279,12 +278,6 @@ def main() -> None:
 
     # ── Підсумок ──────────────────────────────────────────────────────────────
     section("Підсумок")
-
-    # Cleanup перед exit
-    if TEST_DB.exists():
-        TEST_DB.unlink()
-        info("smoke_test.sqlite видалено")
-
     if not failures:
         print(f"\n  {PASS}  Всі перевірки пройшли!\n")
         sys.exit(0)
@@ -293,7 +286,7 @@ def main() -> None:
         for f in failures:
             print(f"       • {f}")
         print()
-        sys.exit(1)  # CI/CD побачить failure
+        sys.exit(1)
 
 
 if __name__ == "__main__":
