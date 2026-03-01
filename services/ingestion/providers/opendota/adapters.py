@@ -29,6 +29,10 @@ def adapt_player(player: dict[str, Any], slot_index: int) -> dict[str, Any]:
     OpenDota повертає 0-4 для Radiant і 128-132 для Dire.
     slot_index (позиція у списку) вже 0–9 після enumerate.
 
+    items: витягує item_0..item_5 → list[int] довжиною 6.
+    Відсутні або None поля замінюються 0 (порожній слот).
+    item_id=0 фільтрується при збереженні в persist.py.
+
     Args:
         player: raw гравець з OpenDota API.
         slot_index: індекс у списку players (0–9).
@@ -44,4 +48,5 @@ def adapt_player(player: dict[str, Any], slot_index: int) -> dict[str, Any]:
         "xpm": player["xpm"],
         "is_radiant": player["isRadiant"],
         "win": player["win"] == 1,
+        "items": [int(player.get(f"item_{i}") or 0) for i in range(6)],
     }

@@ -36,6 +36,20 @@ class MatchPlayerDB:
 
 
 @dataclass(slots=True)
+class MatchPlayerItemDB:
+    """Один предмет гравця у матчі (Task 4.3).
+
+    slot: 0–5 (6 item slots у Dota 2).
+    item_id > 0 — item_id=0 (порожній слот) не зберігається, фільтрується в persist.py.
+    """
+
+    match_id: int
+    player_slot: int
+    slot: int     # 0–5
+    item_id: int  # > 0
+
+
+@dataclass(slots=True)
 class IngestionLogDB:
     match_id: int
     status: Literal["ok", "failed"]
@@ -56,16 +70,11 @@ class HeroDB:
 
 @dataclass(slots=True)
 class ItemDB:
-    """DB-представлення предмету Dota 2 (Task 3.2).
-
-    id = OpenDota item id.
-    cost: ціна в золоті (0 для рецептів і базових предметів).
-    secret_shop / side_shop / recipe — булеві прапори.
-    """
+    """DB-представлення предмету Dota 2 (Task 3.2)."""
 
     id: int
-    name: str           # internal key: 'blink'
-    localized_name: str  # display name: 'Blink Dagger'
+    name: str
+    localized_name: str
     cost: int
     secret_shop: bool
     side_shop: bool
@@ -74,13 +83,7 @@ class ItemDB:
 
 @dataclass(slots=True)
 class HeroRoleScoreDB:
-    """DB-представлення бальної оцінки героя по позиціях (Task 3.3).
-
-    hero_id = OpenDota hero id (FK → heroes.id).
-    pos1..pos5: бали 1–5 по кожній позиції (1=carry..5=hard_support).
-    flex_score: кількість позицій з балом >= 3 (pre-computed при sync).
-    primary_pos: позиція з найвищим балом 1–5 (pre-computed при sync).
-    """
+    """DB-представлення бальної оцінки героя по позиціях (Task 3.3)."""
 
     hero_id: int
     pos1: int

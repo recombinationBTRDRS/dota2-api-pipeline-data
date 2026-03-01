@@ -6,7 +6,9 @@ class PlayerMatchStats(BaseModel):
     """Статистика гравця в матчі.
 
     player_slot (0–9) — унікальний слот у матчі, PK в match_players.
-    Обов'язкове поле — адаптер відповідає за передачу коректного значення.
+    items: list[int] довжиною до 6 — item_id для кожного слоту.
+           item_id=0 означає порожній слот.
+           Default [] — зворотна сумісність з тестами що не передають items.
     """
 
     player_slot: int = Field(..., ge=0, le=9)
@@ -19,6 +21,7 @@ class PlayerMatchStats(BaseModel):
     xpm: int
     is_radiant: bool
     win: bool
+    items: list[int] = Field(default_factory=list)
 
 
 class Match(BaseModel):

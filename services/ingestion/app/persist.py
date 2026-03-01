@@ -1,7 +1,8 @@
 # services/ingestion/app/persist.py
 from services.ingestion.db.models import MatchDB as DBMatch
-from services.ingestion.db.models import MatchPlayerDB, PlayerDB
+from services.ingestion.db.models import MatchPlayerDB, MatchPlayerItemDB, PlayerDB
 from services.ingestion.db.repositories import (
+    MatchPlayerItemRepository,
     MatchPlayerRepository,
     MatchRepository,
     PlayerRepository,
@@ -13,9 +14,8 @@ from services.ingestion.domains.matches.dtos import Match
 def persist_match(match: Match) -> None:
     """Атомарне збереження матчу у БД.
 
-    Зберігає match + players + match_players в одній транзакції.
-    player_slot береться напряму з domain DTO — адаптер і parser
-    відповідають за коректне значення (0–9).
+    Зберігає match + players + match_players + match_player_items в одній транзакції.
+    item_id=0 (порожній слот) не зберігається — фільтрується тут.
 
     Args:
         match: провалідований Match DTO з player_slot >= 0 для кожного гравця.
@@ -24,6 +24,7 @@ def persist_match(match: Match) -> None:
         match_repo = MatchRepository(uow.conn)
         player_repo = PlayerRepository(uow.conn)
         mp_repo = MatchPlayerRepository(uow.conn)
+        item_repo = MatchPlayerItemRepository(uow.conn)
 
         match_repo.upsert(
             DBMatch(
@@ -60,3 +61,17 @@ def persist_match(match: Match) -> None:
                     player_slot=p.player_slot,
                 )
             )
+
+            # Зберігаємо тільки непорожні слоти (item_id > 0)
+            item_records = [
+                MatchPlayerItemDB(
+                    match_id=match.id,
+                    player_slot=p.player_slot,
+                    slot=slot_idx,
+                    item_id=item_id,
+                )
+                for slot_idx, item_id in enumerate(p.items)
+                if item_id > 0
+            ]
+            if item_records:
+                item_repo.upsert_batch(item_records)

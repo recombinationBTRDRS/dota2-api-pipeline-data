@@ -8,6 +8,7 @@ from services.ingestion.db.models import (
     IngestionLogDB,
     ItemDB,
     MatchPlayerDB,
+    MatchPlayerItemDB,
     PlayerDB,
 )
 from services.ingestion.db.models import MatchDB as DBMatch
@@ -350,7 +351,7 @@ class HeroRoleScoreRepository:
         ) for r in rows]
 
 
-# ── Task 4.1: Hero Stats ──────────────────────────────────────────────────────
+# ── Task 4.1 + 4.2: Hero Stats ────────────────────────────────────────────────
 
 @dataclass(slots=True)
 class HeroStatsRow:
@@ -373,6 +374,27 @@ class HeroStatsRow:
     avg_xpm: float
 
 
+@dataclass(slots=True)
+class HeroRoleStatsRow:
+    """Агрегована статистика героя на конкретній позиції (Task 4.2).
+
+    primary_pos: int 1–5 (db-шар не знає про Role enum).
+    Маппінг primary_pos → Role виконується в app-шарі.
+    """
+
+    hero_id: int
+    hero_name: str | None
+    primary_pos: int           # 1=carry, 2=mid, 3=offlane, 4=support, 5=hard_support
+    matches_played: int
+    wins: int
+    losses: int
+    winrate: float
+    avg_kills: float
+    avg_deaths: float
+    avg_assists: float
+    avg_gpm: float
+
+
 def _build_hero_stats_row(row: sqlite3.Row) -> HeroStatsRow:
     matches = int(row["matches_played"])
     wins = int(row["wins"])
@@ -391,6 +413,24 @@ def _build_hero_stats_row(row: sqlite3.Row) -> HeroStatsRow:
     )
 
 
+def _build_hero_role_stats_row(row: sqlite3.Row) -> HeroRoleStatsRow:
+    matches = int(row["matches_played"])
+    wins = int(row["wins"])
+    return HeroRoleStatsRow(
+        hero_id=row["hero_id"],
+        hero_name=row["localized_name"],
+        primary_pos=int(row["primary_pos"]),
+        matches_played=matches,
+        wins=wins,
+        losses=matches - wins,
+        winrate=round(wins / matches, 4) if matches > 0 else 0.0,
+        avg_kills=round(float(row["avg_kills"]), 2),
+        avg_deaths=round(float(row["avg_deaths"]), 2),
+        avg_assists=round(float(row["avg_assists"]), 2),
+        avg_gpm=round(float(row["avg_gpm"]), 2),
+    )
+
+
 _HERO_STATS_SQL = """
     SELECT
         mp.hero_id,
@@ -406,17 +446,43 @@ _HERO_STATS_SQL = """
     LEFT JOIN heroes h ON h.id = mp.hero_id
 """
 
+# SQL base для role-фільтрованих запитів (Task 4.2).
+# JOIN з hero_role_scores дає primary_pos — героїв без запису не включаємо (INNER JOIN).
+_HERO_ROLE_STATS_SQL = """
+    SELECT
+        mp.hero_id,
+        h.localized_name,
+        hrs.primary_pos,
+        COUNT(*)        AS matches_played,
+        SUM(mp.win)     AS wins,
+        AVG(mp.kills)   AS avg_kills,
+        AVG(mp.deaths)  AS avg_deaths,
+        AVG(mp.assists) AS avg_assists,
+        AVG(mp.gpm)     AS avg_gpm
+    FROM match_players mp
+    JOIN heroes h ON h.id = mp.hero_id
+    JOIN hero_role_scores hrs ON hrs.hero_id = mp.hero_id
+"""
+
 
 class HeroStatsRepository:
-    """Аналітичний репозиторій: winrate / pickrate / avg KDA по героях (Task 4.1).
+    """Аналітичний репозиторій: winrate / pickrate / avg KDA по героях (Task 4.1, 4.2).
 
-    Агрегує дані з match_players + heroes.
+    Task 4.1 — загальна статистика по hero_id.
+    Task 4.2 — статистика з фільтром по primary_pos (позиції).
+
+    Підхід для Task 4.2: використовуємо hero_role_scores.primary_pos як proxy
+    для «герой грав на своїй основній позиції» — без ML, чистий SQL JOIN.
+    Герої без запису в hero_role_scores виключаються з role-filtered запитів.
+
     Всі методи read-only — не змінюють DB.
-    Повертає HeroStatsRow (db-layer dataclass), не domain DTO.
+    Повертає dataclass rows (db-layer), не domain DTOs.
     """
 
     def __init__(self, conn: sqlite3.Connection) -> None:
         self.conn = conn
+
+    # ── Task 4.1: загальна статистика ─────────────────────────────────────────
 
     def get_hero_stats(self, hero_id: int) -> HeroStatsRow | None:
         """Повертає агреговану статистику по одному герою або None якщо немає матчів."""
@@ -427,10 +493,7 @@ class HeroStatsRepository:
         return _build_hero_stats_row(row) if row is not None else None
 
     def get_all_heroes_stats(self, min_matches: int = 10) -> list[HeroStatsRow]:
-        """Повертає статистику всіх героїв з кількістю матчів >= min_matches.
-
-        Відсортовано за hero_id для детермінованого порядку.
-        """
+        """Повертає статистику всіх героїв з кількістю матчів >= min_matches."""
         rows = self.conn.execute(
             _HERO_STATS_SQL + """
             GROUP BY mp.hero_id
@@ -446,10 +509,7 @@ class HeroStatsRepository:
         limit: int = 10,
         min_matches: int = 20,
     ) -> list[HeroStatsRow]:
-        """Повертає топ героїв за winrate DESC.
-
-        min_matches фільтрує героїв з малою вибіркою (статистично ненадійні).
-        """
+        """Повертає топ героїв за winrate DESC з фільтром min_matches."""
         rows = self.conn.execute(
             _HERO_STATS_SQL + """
             GROUP BY mp.hero_id
@@ -460,3 +520,370 @@ class HeroStatsRepository:
             (min_matches, limit),
         ).fetchall()
         return [_build_hero_stats_row(r) for r in rows]
+
+    # ── Task 4.2: статистика по позиції ───────────────────────────────────────
+
+    def get_hero_stats_by_role(
+        self,
+        hero_id: int,
+        primary_pos: int,
+    ) -> HeroRoleStatsRow | None:
+        """Повертає статистику конкретного героя на конкретній позиції.
+
+        primary_pos: int 1–5 (caller конвертує Role → int якщо потрібно).
+        None якщо герой не має запису в hero_role_scores або немає матчів.
+        """
+        if primary_pos not in (1, 2, 3, 4, 5):
+            raise ValueError(f"primary_pos must be 1-5, got {primary_pos}")
+
+        row = self.conn.execute(
+            _HERO_ROLE_STATS_SQL + """
+            WHERE mp.hero_id = ? AND hrs.primary_pos = ?
+            GROUP BY mp.hero_id
+            """,
+            (hero_id, primary_pos),
+        ).fetchone()
+        return _build_hero_role_stats_row(row) if row is not None else None
+
+    def get_role_leaderboard(
+        self,
+        primary_pos: int,
+        min_matches: int = 10,
+        limit: int = 20,
+    ) -> list[HeroRoleStatsRow]:
+        """Повертає топ героїв на позиції primary_pos за winrate DESC.
+
+        Включає тільки героїв у яких primary_pos в hero_role_scores = вказаному.
+        Тобто «природні» герої цієї позиції, не всі хто там грав.
+
+        primary_pos: int 1–5.
+        min_matches: фільтр мінімальної вибірки.
+        limit: максимум записів у результаті.
+        """
+        if primary_pos not in (1, 2, 3, 4, 5):
+            raise ValueError(f"primary_pos must be 1-5, got {primary_pos}")
+
+        rows = self.conn.execute(
+            _HERO_ROLE_STATS_SQL + """
+            WHERE hrs.primary_pos = ?
+            GROUP BY mp.hero_id
+            HAVING COUNT(*) >= ?
+            ORDER BY (SUM(mp.win) * 1.0 / COUNT(*)) DESC
+            LIMIT ?
+            """,
+            (primary_pos, min_matches, limit),
+        ).fetchall()
+        return [_build_hero_role_stats_row(r) for r in rows]
+
+class MatchPlayerItemRepository:
+    """Зберігає предмети гравців у матчі (Task 4.3).
+
+    Тільки write — читання через ItemBuildRepository.
+    """
+
+    def __init__(self, conn: sqlite3.Connection) -> None:
+        self.conn = conn
+
+    def upsert_batch(self, items: list[MatchPlayerItemDB]) -> None:
+        """Ідемпотентне збереження списку item записів.
+
+        DO UPDATE — відповідає архітектурному правилу upsert.
+        Items є immutable після матчу (snapshot), тому UPDATE ідемпотентний.
+        """
+        self.conn.executemany(
+            """
+            INSERT INTO match_player_items (match_id, player_slot, slot, item_id)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(match_id, player_slot, slot) DO UPDATE SET
+                item_id = excluded.item_id
+            """,
+            [(i.match_id, i.player_slot, i.slot, i.item_id) for i in items],
+        )
+
+
+@dataclass(slots=True)
+class ItemBuildEntry:
+    """Агрегований запис популярності предмету для героя (Task 4.3).
+
+    Це db-layer dataclass, не domain DTO.
+    times_bought: кількість матчів де герой мав цей item.
+    pickrate: times_bought / total_matches для цього героя, округлено 4 знаки.
+    win_pickrate: times_bought у виграних матчах / total_wins, округлено 4 знаки.
+                  0.0 якщо total_wins = 0.
+    """
+
+    item_id: int
+    item_name: str | None    # localized_name з JOIN items, None якщо items не синкнуті
+    times_bought: int
+    pickrate: float
+    win_pickrate: float
+
+
+class ItemBuildRepository:
+    """Аналітичний репозиторій: популярність предметів по герою (Task 4.3).
+
+    Всі методи read-only.
+    """
+
+    def __init__(self, conn: sqlite3.Connection) -> None:
+        self.conn = conn
+
+    def get_hero_item_build(
+        self,
+        hero_id: int,
+        win_only: bool = False,
+        limit: int = 6,
+    ) -> list[ItemBuildEntry]:
+        """Повертає топ предметів для героя відсортованих за pickrate DESC.
+
+        Один SQL запит — без N+1.
+        win_times обчислюється через LEFT JOIN subquery по всіх items одразу.
+        """
+        win_filter = "AND mp.win = 1" if win_only else ""
+
+        total_sql = f"""
+            SELECT COUNT(DISTINCT mp.match_id)
+            FROM match_players mp
+            WHERE mp.hero_id = ? {win_filter}
+        """
+        total_row = self.conn.execute(total_sql, (hero_id,)).fetchone()
+        total = int(total_row[0]) if total_row else 0
+
+        if total == 0:
+            return []
+
+        total_wins_row = self.conn.execute(
+            "SELECT COUNT(DISTINCT match_id) FROM match_players "
+            "WHERE hero_id = ? AND win = 1",
+            (hero_id,),
+        ).fetchone()
+        total_wins = int(total_wins_row[0]) if total_wins_row else 0
+
+        rows = self.conn.execute(
+            f"""
+            SELECT
+                mpi.item_id,
+                i.localized_name,
+                COUNT(DISTINCT mpi.match_id)        AS times_bought,
+                COALESCE(win_counts.win_times, 0)   AS win_times
+            FROM match_player_items mpi
+            JOIN match_players mp
+                ON mp.match_id = mpi.match_id
+               AND mp.player_slot = mpi.player_slot
+            LEFT JOIN items i ON i.id = mpi.item_id
+            LEFT JOIN (
+                SELECT mpi2.item_id, COUNT(DISTINCT mpi2.match_id) AS win_times
+                FROM match_player_items mpi2
+                JOIN match_players mp2
+                    ON mp2.match_id = mpi2.match_id
+                   AND mp2.player_slot = mpi2.player_slot
+                WHERE mp2.hero_id = ? AND mp2.win = 1
+                GROUP BY mpi2.item_id
+            ) win_counts ON win_counts.item_id = mpi.item_id
+            WHERE mp.hero_id = ? {win_filter}
+            GROUP BY mpi.item_id
+            ORDER BY times_bought DESC
+            LIMIT ?
+            """,
+            (hero_id, hero_id, limit),
+        ).fetchall()
+
+        return [
+            ItemBuildEntry(
+                item_id=row["item_id"],
+                item_name=row["localized_name"],
+                times_bought=int(row["times_bought"]),
+                pickrate=round(int(row["times_bought"]) / total, 4),
+                win_pickrate=round(int(row["win_times"]) / total_wins, 4)
+                if total_wins > 0 else 0.0,
+            )
+            for row in rows
+        ]
+
+
+
+# Match phase thresholds (seconds)
+_EARLY_MAX = 1800   # ≤ 30 хвилин
+_MID_MAX = 3000     # 30–50 хвилин
+# late = > 50 хвилин
+
+
+def _duration_to_phase(duration: int) -> str:
+    if duration <= _EARLY_MAX:
+        return "early"
+    if duration <= _MID_MAX:
+        return "mid"
+    return "late"
+
+
+@dataclass(slots=True)
+class MatchPhaseStatsRow:
+    """Статистика героя в конкретній фазі гри (Task 4.4a).
+
+    phase: 'early' | 'mid' | 'late' — визначається через matches.duration.
+    Це db-layer dataclass, не domain DTO.
+    """
+
+    hero_id: int
+    phase: str              # 'early' | 'mid' | 'late'
+    matches_played: int
+    wins: int
+    winrate: float          # округлено 4 знаки
+    avg_gpm: float
+    avg_kills: float
+
+
+@dataclass(slots=True)
+class MetaHeroRow:
+    """Рядок meta snapshot — герой + позиція + агрегована meta_score (Task 4.4b).
+
+    primary_pos: int 1–5 (db-шар не знає про Role enum).
+    meta_score: winrate * pickrate * 100, округлено 2 знаки.
+    pickrate: matches_played / total_matches_in_sample, округлено 4 знаки.
+    """
+
+    hero_id: int
+    hero_name: str | None
+    primary_pos: int
+    matches_played: int
+    wins: int
+    winrate: float
+    pickrate: float
+    meta_score: float
+
+
+class MatchTimelineRepository:
+    """Аналітика матчів по фазах гри і meta snapshot (Task 4.4).
+
+    4.4a — get_hero_phase_stats: winrate/gpm по early/mid/late для героя.
+    4.4b — get_meta_snapshot: топ героїв по позиціях за meta_score.
+
+    match phase визначається через matches.duration:
+        early  ≤ 1800s (≤ 30 хв)
+        mid    1801–3000s (30–50 хв)
+        late   > 3000s (> 50 хв)
+
+    Всі методи read-only.
+    """
+
+    def __init__(self, conn: sqlite3.Connection) -> None:
+        self.conn = conn
+
+    def get_hero_phase_stats(self, hero_id: int) -> list[MatchPhaseStatsRow]:
+        """Повертає статистику героя по фазах гри (до 3 записів).
+
+        Фази без матчів не повертаються.
+        Порядок: early → mid → late.
+        """
+        rows = self.conn.execute(
+            """
+            SELECT
+                mp.hero_id,
+                CASE
+                    WHEN m.duration <= 1800 THEN 'early'
+                    WHEN m.duration <= 3000 THEN 'mid'
+                    ELSE 'late'
+                END AS phase,
+                COUNT(*)        AS matches_played,
+                SUM(mp.win)     AS wins,
+                AVG(mp.gpm)     AS avg_gpm,
+                AVG(mp.kills)   AS avg_kills
+            FROM match_players mp
+            JOIN matches m ON m.id = mp.match_id
+            WHERE mp.hero_id = ?
+            GROUP BY phase
+            ORDER BY
+                CASE phase
+                    WHEN 'early' THEN 1
+                    WHEN 'mid'   THEN 2
+                    ELSE              3
+                END
+            """,
+            (hero_id,),
+        ).fetchall()
+
+        result = []
+        for row in rows:
+            matches = int(row["matches_played"])
+            wins = int(row["wins"])
+            result.append(MatchPhaseStatsRow(
+                hero_id=hero_id,
+                phase=row["phase"],
+                matches_played=matches,
+                wins=wins,
+                winrate=round(wins / matches, 4) if matches > 0 else 0.0,
+                avg_gpm=round(float(row["avg_gpm"]), 2),
+                avg_kills=round(float(row["avg_kills"]), 2),
+            ))
+        return result
+
+    def get_meta_snapshot(
+        self,
+        primary_pos: int | None = None,
+        limit: int = 10,
+    ) -> list[MetaHeroRow]:
+        """Повертає топ героїв за meta_score DESC.
+
+        meta_score = winrate * pickrate * 100, округлено 2 знаки.
+        pickrate = matches_played / total_matches_in_sample.
+
+        primary_pos: якщо None — всі позиції; інакше фільтр по конкретній позиції.
+        Герої без hero_role_scores запису виключаються (INNER JOIN).
+
+        Порожній список якщо нема матчів.
+        """
+        if primary_pos is not None and primary_pos not in (1, 2, 3, 4, 5):
+            raise ValueError(f"primary_pos must be 1-5 or None, got {primary_pos}")
+
+        # total_matches — загальна кількість матчів у вибірці для pickrate
+        total_row = self.conn.execute(
+            "SELECT COUNT(DISTINCT match_id) FROM match_players"
+        ).fetchone()
+        total = int(total_row[0]) if total_row else 0
+
+        if total == 0:
+            return []
+
+        pos_filter = "AND hrs.primary_pos = ?" if primary_pos is not None else ""
+        params: tuple[int, ...] = (primary_pos, limit) if primary_pos is not None else (limit,)
+
+        rows = self.conn.execute(
+            f"""
+            SELECT
+                mp.hero_id,
+                h.localized_name,
+                hrs.primary_pos,
+                COUNT(*)        AS matches_played,
+                SUM(mp.win)     AS wins
+            FROM match_players mp
+            JOIN heroes h ON h.id = mp.hero_id
+            JOIN hero_role_scores hrs ON hrs.hero_id = mp.hero_id
+            WHERE 1=1 {pos_filter}
+            GROUP BY mp.hero_id
+            ORDER BY
+                (SUM(mp.win) * 1.0 / COUNT(*))
+                * (COUNT(*) * 1.0 / {total})
+                * 100 DESC
+            LIMIT ?
+            """,
+            params,
+        ).fetchall()
+
+        result = []
+        for row in rows:
+            matches = int(row["matches_played"])
+            wins = int(row["wins"])
+            winrate = round(wins / matches, 4) if matches > 0 else 0.0
+            pickrate = round(matches / total, 4)
+            meta_score = round(winrate * pickrate * 100, 2)
+            result.append(MetaHeroRow(
+                hero_id=row["hero_id"],
+                hero_name=row["localized_name"],
+                primary_pos=int(row["primary_pos"]),
+                matches_played=matches,
+                wins=wins,
+                winrate=winrate,
+                pickrate=pickrate,
+                meta_score=meta_score,
+            ))
+        return result
