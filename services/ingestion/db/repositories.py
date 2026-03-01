@@ -587,14 +587,15 @@ class MatchPlayerItemRepository:
     def upsert_batch(self, items: list[MatchPlayerItemDB]) -> None:
         """Ідемпотентне збереження списку item записів.
 
-        ON CONFLICT DO NOTHING — повторний persist_match не дублює записи.
-        item_id=0 не передається сюди — фільтрується в persist.py.
+        DO UPDATE — відповідає архітектурному правилу upsert.
+        Items є immutable після матчу (snapshot), тому UPDATE ідемпотентний.
         """
         self.conn.executemany(
             """
             INSERT INTO match_player_items (match_id, player_slot, slot, item_id)
             VALUES (?, ?, ?, ?)
-            ON CONFLICT(match_id, player_slot, slot) DO NOTHING
+            ON CONFLICT(match_id, player_slot, slot) DO UPDATE SET
+                item_id = excluded.item_id
             """,
             [(i.match_id, i.player_slot, i.slot, i.item_id) for i in items],
         )
@@ -635,17 +636,11 @@ class ItemBuildRepository:
     ) -> list[ItemBuildEntry]:
         """Повертає топ предметів для героя відсортованих за pickrate DESC.
 
-        hero_id: OpenDota hero id.
-        win_only: якщо True — рахує тільки матчі де гравець переміг.
-        limit: максимум записів (default 6 = повний item build).
-
-        Агрегація: рахує унікальні матчі де герой мав item (не кількість слотів).
-        Це коректно бо герой не може мати два однакових item в різних слотах
-        у кінці матчу (OpenDota snapshot фінального стану).
+        Один SQL запит — без N+1.
+        win_times обчислюється через LEFT JOIN subquery по всіх items одразу.
         """
         win_filter = "AND mp.win = 1" if win_only else ""
 
-        # Підзапит: total_matches (або total_wins) для нормалізації pickrate
         total_sql = f"""
             SELECT COUNT(DISTINCT mp.match_id)
             FROM match_players mp
@@ -657,59 +652,54 @@ class ItemBuildRepository:
         if total == 0:
             return []
 
+        total_wins_row = self.conn.execute(
+            "SELECT COUNT(DISTINCT match_id) FROM match_players "
+            "WHERE hero_id = ? AND win = 1",
+            (hero_id,),
+        ).fetchone()
+        total_wins = int(total_wins_row[0]) if total_wins_row else 0
+
         rows = self.conn.execute(
             f"""
             SELECT
                 mpi.item_id,
                 i.localized_name,
-                COUNT(DISTINCT mpi.match_id) AS times_bought
+                COUNT(DISTINCT mpi.match_id)        AS times_bought,
+                COALESCE(win_counts.win_times, 0)   AS win_times
             FROM match_player_items mpi
             JOIN match_players mp
                 ON mp.match_id = mpi.match_id
                AND mp.player_slot = mpi.player_slot
             LEFT JOIN items i ON i.id = mpi.item_id
+            LEFT JOIN (
+                SELECT mpi2.item_id, COUNT(DISTINCT mpi2.match_id) AS win_times
+                FROM match_player_items mpi2
+                JOIN match_players mp2
+                    ON mp2.match_id = mpi2.match_id
+                   AND mp2.player_slot = mpi2.player_slot
+                WHERE mp2.hero_id = ? AND mp2.win = 1
+                GROUP BY mpi2.item_id
+            ) win_counts ON win_counts.item_id = mpi.item_id
             WHERE mp.hero_id = ? {win_filter}
             GROUP BY mpi.item_id
             ORDER BY times_bought DESC
             LIMIT ?
             """,
-            (hero_id, limit),
+            (hero_id, hero_id, limit),
         ).fetchall()
 
-        # win_pickrate завжди відносно wins, незалежно від win_only
-        total_wins_row = self.conn.execute(
-            "SELECT COUNT(DISTINCT match_id) FROM match_players WHERE hero_id = ? AND win = 1",
-            (hero_id,),
-        ).fetchone()
-        total_wins = int(total_wins_row[0]) if total_wins_row else 0
-
-        result = []
-        for row in rows:
-            times = int(row["times_bought"])
-
-            # win_pickrate: скільки разів item зустрічається у виграних матчах
-            win_row = self.conn.execute(
-                """
-                SELECT COUNT(DISTINCT mpi.match_id)
-                FROM match_player_items mpi
-                JOIN match_players mp
-                    ON mp.match_id = mpi.match_id
-                   AND mp.player_slot = mpi.player_slot
-                WHERE mp.hero_id = ? AND mpi.item_id = ? AND mp.win = 1
-                """,
-                (hero_id, row["item_id"]),
-            ).fetchone()
-            win_times = int(win_row[0]) if win_row else 0
-
-            result.append(ItemBuildEntry(
+        return [
+            ItemBuildEntry(
                 item_id=row["item_id"],
                 item_name=row["localized_name"],
-                times_bought=times,
-                pickrate=round(times / total, 4),
-                win_pickrate=round(win_times / total_wins, 4) if total_wins > 0 else 0.0,
-            ))
+                times_bought=int(row["times_bought"]),
+                pickrate=round(int(row["times_bought"]) / total, 4),
+                win_pickrate=round(int(row["win_times"]) / total_wins, 4)
+                if total_wins > 0 else 0.0,
+            )
+            for row in rows
+        ]
 
-        return result
 
 
 # Match phase thresholds (seconds)
