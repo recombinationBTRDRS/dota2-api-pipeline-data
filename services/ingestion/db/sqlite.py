@@ -20,8 +20,9 @@ _MIGRATIONS = [
     "ALTER TABLE match_players ADD COLUMN lane_role INTEGER CHECK(lane_role IS NULL OR lane_role BETWEEN 1 AND 4)",
     "ALTER TABLE match_players ADD COLUMN is_roaming BOOLEAN NOT NULL DEFAULT 0",
     "CREATE INDEX IF NOT EXISTS idx_match_players_lane_role ON match_players (lane_role)",
-    # Epic 5.1 — hero_stats_computed
+    # Epic 5.1 — hero_stats_computed (AUTOINCREMENT id + COALESCE UNIQUE index)
     """CREATE TABLE IF NOT EXISTS hero_stats_computed (
+        id              INTEGER PRIMARY KEY AUTOINCREMENT,
         hero_id         INTEGER NOT NULL,
         patch           INTEGER,
         region          INTEGER,
@@ -34,9 +35,9 @@ _MIGRATIONS = [
         total_gpm       INTEGER NOT NULL DEFAULT 0,
         total_xpm       INTEGER NOT NULL DEFAULT 0,
         computed_at     INTEGER NOT NULL,
-        PRIMARY KEY (hero_id, patch, region, primary_pos),
         FOREIGN KEY (hero_id) REFERENCES heroes(id) ON DELETE CASCADE
     )""",
+    "CREATE UNIQUE INDEX IF NOT EXISTS uq_hsc_hero_patch_region_pos ON hero_stats_computed (hero_id, COALESCE(patch, -1), COALESCE(region, -1), primary_pos)",
     "CREATE INDEX IF NOT EXISTS idx_hsc_hero_id     ON hero_stats_computed (hero_id)",
     "CREATE INDEX IF NOT EXISTS idx_hsc_patch       ON hero_stats_computed (patch)",
     "CREATE INDEX IF NOT EXISTS idx_hsc_primary_pos ON hero_stats_computed (primary_pos)",
@@ -64,11 +65,7 @@ def get_connection() -> sqlite3.Connection:
 
 
 def _run_migrations(conn: sqlite3.Connection) -> None:
-    """Виконує міграції ідемпотентно.
-
-    Ігнорує тільки безпечні помилки (колонка/таблиця/індекс вже існує).
-    Будь-яка інша OperationalError — re-raise.
-    """
+    """Виконує міграції ідемпотентно."""
     for sql in _MIGRATIONS:
         try:
             conn.execute(sql)
@@ -82,7 +79,6 @@ def _run_migrations(conn: sqlite3.Connection) -> None:
 
 
 def init_db() -> None:
-    """Ініціалізує схему БД (IF NOT EXISTS) + міграції для існуючих DB."""
     conn = get_connection()
     try:
         schema_sql = SCHEMA_PATH.read_text(encoding="utf-8")

@@ -2,7 +2,7 @@
 
 PRAGMA foreign_keys = ON;
 
--- ── Raw data ──────────────────────────────────────────────────────────────────
+-- Raw data
 
 CREATE TABLE IF NOT EXISTS matches (
     id          INTEGER PRIMARY KEY,
@@ -91,17 +91,17 @@ CREATE TABLE IF NOT EXISTS match_player_items (
         REFERENCES match_players(match_id, player_slot) ON DELETE CASCADE
 );
 
--- ── Pre-computed layer (Epic 5) ───────────────────────────────────────────────
--- Ці таблиці є "золотими" — читаються Analytics API.
--- Перебудовуються batch job rebuild_hero_stats() при виклику або за розкладом.
--- Джерело: match_players + hero_role_scores.
--- NULL у patch/region = агрегат по всіх патчах/регіонах.
+-- Pre-computed layer (Epic 5)
+-- patch/region = NULL = rollup (aggregate over all patches/regions).
+-- PRIMARY KEY excludes patch/region because SQLite treats NULL != NULL,
+-- causing duplicates on UPSERT. Uniqueness is enforced via UNIQUE expression
+-- index with COALESCE(-1 as sentinel for NULL).
 
--- 5.1 Агрегована статистика героя (загальна і по патчу)
 CREATE TABLE IF NOT EXISTS hero_stats_computed (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
     hero_id         INTEGER NOT NULL,
-    patch           INTEGER,            -- NULL = всі патчи
-    region          INTEGER,            -- NULL = всі регіони
+    patch           INTEGER,
+    region          INTEGER,
     primary_pos     INTEGER NOT NULL CHECK(primary_pos BETWEEN 1 AND 5),
     matches_played  INTEGER NOT NULL DEFAULT 0,
     wins            INTEGER NOT NULL DEFAULT 0,
@@ -110,17 +110,17 @@ CREATE TABLE IF NOT EXISTS hero_stats_computed (
     total_assists   INTEGER NOT NULL DEFAULT 0,
     total_gpm       INTEGER NOT NULL DEFAULT 0,
     total_xpm       INTEGER NOT NULL DEFAULT 0,
-    computed_at     INTEGER NOT NULL,   -- unix timestamp останнього rebuild
-    PRIMARY KEY (hero_id, patch, region, primary_pos),
+    computed_at     INTEGER NOT NULL,
     FOREIGN KEY (hero_id) REFERENCES heroes(id) ON DELETE CASCADE
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_hsc_hero_patch_region_pos
+    ON hero_stats_computed (hero_id, COALESCE(patch, -1), COALESCE(region, -1), primary_pos);
 
 CREATE INDEX IF NOT EXISTS idx_hsc_hero_id     ON hero_stats_computed (hero_id);
 CREATE INDEX IF NOT EXISTS idx_hsc_patch       ON hero_stats_computed (patch);
 CREATE INDEX IF NOT EXISTS idx_hsc_primary_pos ON hero_stats_computed (primary_pos);
 
--- 5.2 Популярні білди предметів (по герою і ролі)
--- Перебудовується rebuild_item_builds().
 CREATE TABLE IF NOT EXISTS hero_item_build_computed (
     hero_id         INTEGER NOT NULL,
     primary_pos     INTEGER NOT NULL CHECK(primary_pos BETWEEN 1 AND 5),
@@ -134,3 +134,38 @@ CREATE TABLE IF NOT EXISTS hero_item_build_computed (
 );
 
 CREATE INDEX IF NOT EXISTS idx_hibc_hero_pos ON hero_item_build_computed (hero_id, primary_pos);
+
+-- 5.4 Counter matrix: winrate героя A проти героя B (різні команди)
+-- hero_id — герой якого аналізуємо
+-- opponent_id — герой суперника
+-- wins — кількість перемог hero_id проти opponent_id
+CREATE TABLE IF NOT EXISTS hero_matchup_computed (
+    hero_id     INTEGER NOT NULL,
+    opponent_id INTEGER NOT NULL,
+    matches     INTEGER NOT NULL DEFAULT 0,
+    wins        INTEGER NOT NULL DEFAULT 0,
+    computed_at INTEGER NOT NULL,
+    PRIMARY KEY (hero_id, opponent_id),
+    FOREIGN KEY (hero_id)     REFERENCES heroes(id) ON DELETE CASCADE,
+    FOREIGN KEY (opponent_id) REFERENCES heroes(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_hmc_hero_id     ON hero_matchup_computed (hero_id);
+CREATE INDEX IF NOT EXISTS idx_hmc_opponent_id ON hero_matchup_computed (opponent_id);
+
+-- 5.5 Synergy matrix: winrate пари (A + B) в одній команді
+-- hero_id < ally_id завжди — уникаємо дублів (A,B) і (B,A)
+CREATE TABLE IF NOT EXISTS hero_synergy_computed (
+    hero_id     INTEGER NOT NULL,
+    ally_id     INTEGER NOT NULL,
+    matches     INTEGER NOT NULL DEFAULT 0,
+    wins        INTEGER NOT NULL DEFAULT 0,
+    computed_at INTEGER NOT NULL,
+    PRIMARY KEY (hero_id, ally_id),
+    CHECK (hero_id < ally_id),
+    FOREIGN KEY (hero_id)  REFERENCES heroes(id) ON DELETE CASCADE,
+    FOREIGN KEY (ally_id)  REFERENCES heroes(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_hsc_synergy_hero ON hero_synergy_computed (hero_id);
+CREATE INDEX IF NOT EXISTS idx_hsc_synergy_ally ON hero_synergy_computed (ally_id);

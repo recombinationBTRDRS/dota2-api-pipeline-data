@@ -31,7 +31,7 @@ class CycleStats:
     failed: int = 0
     errors: list[tuple[int, str]] = field(default_factory=list)
 
-    # Epic 5.6 — rebuild stats (None якщо AUTO_REBUILD_AFTER_INGEST=False)
+    # Epic 5.6 — rebuild stats (None якщо AUTO_REBUILD_AFTER_INGEST=False або не запускався)
     rebuild_hero_stats_rows: int | None = None
     rebuild_item_build_rows: int | None = None
 
@@ -84,10 +84,12 @@ class Runner:
             )
 
     def _run_rebuild(self, stats: CycleStats) -> None:
-        """Запускає rebuild pre-computed таблиць якщо AUTO_REBUILD_AFTER_INGEST=True.
+        """Rebuild pre-computed таблиць якщо AUTO_REBUILD_AFTER_INGEST=True.
 
-        Помилка rebuild не зупиняє runner — логується як WARNING.
-        Rebuild не запускається якщо в циклі не було нових матчів (ingested == 0).
+        Запускається тільки якщо ingested > 0.
+        Помилка rebuild логується як WARNING і не зупиняє runner.
+        stats поля заповнюються одразу після кожного окремого rebuild
+        щоб зберегти частковий результат при падінні другого кроку.
         """
         if not settings.AUTO_REBUILD_AFTER_INGEST:
             return
@@ -96,22 +98,24 @@ class Runner:
             logger.debug("Skipping rebuild — no new matches ingested this cycle")
             return
 
+        from services.ingestion.app.rebuild_hero_stats import rebuild_hero_stats
+        from services.ingestion.app.rebuild_item_builds import rebuild_item_builds
+
         try:
-            from services.ingestion.app.rebuild_hero_stats import rebuild_hero_stats
-            from services.ingestion.app.rebuild_item_builds import rebuild_item_builds
-
-            hero_rows = rebuild_hero_stats()
-            item_rows = rebuild_item_builds()
-
-            stats.rebuild_hero_stats_rows = hero_rows
-            stats.rebuild_item_build_rows = item_rows
-
-            logger.info(
-                "Rebuild done: hero_stats=%s rows, item_builds=%s rows",
-                hero_rows, item_rows,
-            )
+            stats.rebuild_hero_stats_rows = rebuild_hero_stats()
         except Exception:
-            logger.warning("Rebuild failed — pre-computed tables may be stale", exc_info=True)
+            logger.warning("rebuild_hero_stats failed", exc_info=True)
+
+        try:
+            stats.rebuild_item_build_rows = rebuild_item_builds()
+        except Exception:
+            logger.warning("rebuild_item_builds failed", exc_info=True)
+
+        logger.info(
+            "Rebuild done: hero_stats=%s rows, item_builds=%s rows",
+            stats.rebuild_hero_stats_rows,
+            stats.rebuild_item_build_rows,
+        )
 
     def run_cycle(self) -> CycleStats:
         """Виконує один цикл discovery + ingest + (optional) rebuild."""
@@ -144,7 +148,6 @@ class Runner:
             stats.discovered, stats.skipped, stats.ingested, stats.failed,
         )
 
-        # Epic 5.6 — rebuild після інжесту якщо є нові матчі
         self._run_rebuild(stats)
 
         app_state.last_cycle_at = int(time.time())
