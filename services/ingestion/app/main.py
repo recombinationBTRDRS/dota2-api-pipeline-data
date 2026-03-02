@@ -8,6 +8,7 @@ from fastapi.responses import JSONResponse
 
 from services.ingestion.app.config import settings
 from services.ingestion.app.routers.analytics import router as analytics_router
+from services.ingestion.app.routers.computed import router as computed_router
 from services.ingestion.app.state import app_state
 from services.ingestion.db.sqlite import get_connection, init_db
 
@@ -45,6 +46,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Ingestion Service", lifespan=lifespan)
 
 app.include_router(analytics_router, tags=["analytics"])
+app.include_router(computed_router, tags=["computed"])  # Epic 5
 
 
 @app.get("/health")

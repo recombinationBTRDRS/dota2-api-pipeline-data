@@ -1,5 +1,9 @@
 # services/ingestion/db/repositories/analytics/__init__.py
-"""Analytics repositories — re-export публічного API."""
+from services.ingestion.db.repositories.analytics.computed import (
+    ComputedHeroStatsRow,
+    ComputedItemBuildRow,
+    ComputedStatsRepository,
+)
 from services.ingestion.db.repositories.analytics.hero_stats import (
     HeroRoleStatsRow,
     HeroStatsRepository,
@@ -16,12 +20,8 @@ from services.ingestion.db.repositories.analytics.timeline import (
 )
 
 __all__ = [
-    "HeroStatsRepository",
-    "HeroStatsRow",
-    "HeroRoleStatsRow",
-    "ItemBuildRepository",
-    "ItemBuildEntry",
-    "MatchTimelineRepository",
-    "MatchPhaseStatsRow",
-    "MetaHeroRow",
+    "HeroStatsRepository", "HeroStatsRow", "HeroRoleStatsRow",
+    "ItemBuildRepository", "ItemBuildEntry",
+    "MatchTimelineRepository", "MatchPhaseStatsRow", "MetaHeroRow",
+    "ComputedStatsRepository", "ComputedHeroStatsRow", "ComputedItemBuildRow",
 ]
