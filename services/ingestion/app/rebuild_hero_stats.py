@@ -97,7 +97,7 @@ def _build_rollups(granular_rows: list) -> dict:
         if p is not None:
             _add(aggs[(h, None, r, pos)], row)
         # rollup: обидва None (глобальний агрегат)
-        if p is not None or r is not None:
+        if p is not None and r is not None:
             _add(aggs[(h, None, None, pos)], row)
 
     return aggs
