@@ -15,14 +15,13 @@ logger = logging.getLogger(__name__)
 
 _SYNERGY_SQL = """
     SELECT
-        CASE WHEN a.hero_id < b.hero_id THEN a.hero_id ELSE b.hero_id END AS hero_id,
-        CASE WHEN a.hero_id < b.hero_id THEN b.hero_id ELSE a.hero_id END AS ally_id,
-        a.win AS win
+        a.hero_id AS hero_id,
+        b.hero_id AS ally_id,
+        a.win     AS win
     FROM match_players a
     JOIN match_players b
         ON  b.match_id = a.match_id
         AND (a.player_slot < 128) = (b.player_slot < 128)
-        AND a.hero_id != b.hero_id
         AND a.hero_id < b.hero_id
 """
 

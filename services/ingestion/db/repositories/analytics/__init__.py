@@ -24,9 +24,18 @@ from services.ingestion.db.repositories.analytics.timeline import (
 )
 
 __all__ = [
-    "HeroStatsRepository", "HeroStatsRow", "HeroRoleStatsRow",
-    "ItemBuildRepository", "ItemBuildEntry",
-    "MatchTimelineRepository", "MatchPhaseStatsRow", "MetaHeroRow",
-    "ComputedStatsRepository", "ComputedHeroStatsRow", "ComputedItemBuildRow",
-    "MatchupRepository", "MatchupRow", "SynergyRow",
+    "ComputedHeroStatsRow",
+    "ComputedItemBuildRow",
+    "ComputedStatsRepository",
+    "HeroRoleStatsRow",
+    "HeroStatsRepository",
+    "HeroStatsRow",
+    "ItemBuildEntry",
+    "ItemBuildRepository",
+    "MatchPhaseStatsRow",
+    "MatchTimelineRepository",
+    "MatchupRepository",
+    "MatchupRow",
+    "MetaHeroRow",
+    "SynergyRow",
 ]

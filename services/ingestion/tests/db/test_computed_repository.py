@@ -352,4 +352,5 @@ def test_computed_repo_staleness_set_after_rebuild(db) -> None:
 
     with UnitOfWork() as uow:
         staleness = ComputedStatsRepository(uow.conn).get_staleness()
+    assert staleness["hero_stats_computed"] is not None
     assert staleness["hero_stats_computed"] > 0

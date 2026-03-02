@@ -17,6 +17,7 @@ Rollup логіка:
   через dict-ключ (hero_id, patch_key, region_key, primary_pos).
 """
 import logging
+import sqlite3
 import time
 from collections import defaultdict
 
@@ -60,7 +61,7 @@ def _make_agg() -> list:
     return [0, 0, 0, 0, 0, 0, 0]  # mp, wins, kills, deaths, assists, gpm, xpm
 
 
-def _add(agg: list, row: object) -> None:
+def _add(agg: list, row: sqlite3.Row) -> None:
     agg[0] += row["matches_played"]
     agg[1] += row["wins"]
     agg[2] += row["total_kills"]

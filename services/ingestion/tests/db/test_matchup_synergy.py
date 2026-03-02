@@ -172,6 +172,13 @@ def test_rebuild_synergies_clears_stale_on_empty(db) -> None:
 
     rebuild_synergies()
 
+    # Precondition: rebuild дійсно записав дані
+    with UnitOfWork() as uow:
+        count_before = uow.conn.execute(
+            "SELECT COUNT(*) FROM hero_synergy_computed"
+        ).fetchone()[0]
+    assert count_before > 0
+
     with UnitOfWork() as uow:
         uow.conn.execute("DELETE FROM match_players")
         uow.conn.execute("DELETE FROM matches")
