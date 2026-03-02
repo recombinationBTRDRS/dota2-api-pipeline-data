@@ -1,4 +1,3 @@
-# services/ingestion/db/repositories/analytics/__init__.py
 from services.ingestion.db.repositories.analytics.computed import (
     ComputedHeroStatsRow,
     ComputedItemBuildRow,
@@ -18,10 +17,16 @@ from services.ingestion.db.repositories.analytics.timeline import (
     MatchTimelineRepository,
     MetaHeroRow,
 )
+from services.ingestion.db.repositories.analytics.matchup import (
+    MatchupRepository,
+    MatchupRow,
+    SynergyRow,
+)
 
 __all__ = [
     "HeroStatsRepository", "HeroStatsRow", "HeroRoleStatsRow",
     "ItemBuildRepository", "ItemBuildEntry",
     "MatchTimelineRepository", "MatchPhaseStatsRow", "MetaHeroRow",
     "ComputedStatsRepository", "ComputedHeroStatsRow", "ComputedItemBuildRow",
+    "MatchupRepository", "MatchupRow", "SynergyRow",
 ]
