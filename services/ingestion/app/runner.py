@@ -31,6 +31,10 @@ class CycleStats:
     failed: int = 0
     errors: list[tuple[int, str]] = field(default_factory=list)
 
+    # Epic 5.6 — rebuild stats (None якщо AUTO_REBUILD_AFTER_INGEST=False або не запускався)
+    rebuild_hero_stats_rows: int | None = None
+    rebuild_item_build_rows: int | None = None
+
 
 class Runner:
     """Discovery + Ingest runner з deduplication і graceful shutdown."""
@@ -79,8 +83,42 @@ class Runner:
                 match_id=match_id, ingested_at=int(time.time()), error=error,
             )
 
+    def _run_rebuild(self, stats: CycleStats) -> None:
+        """Rebuild pre-computed таблиць якщо AUTO_REBUILD_AFTER_INGEST=True.
+
+        Запускається тільки якщо ingested > 0.
+        Помилка rebuild логується як WARNING і не зупиняє runner.
+        stats поля заповнюються одразу після кожного окремого rebuild
+        щоб зберегти частковий результат при падінні другого кроку.
+        """
+        if not settings.AUTO_REBUILD_AFTER_INGEST:
+            return
+
+        if stats.ingested == 0:
+            logger.debug("Skipping rebuild — no new matches ingested this cycle")
+            return
+
+        from services.ingestion.app.rebuild_hero_stats import rebuild_hero_stats
+        from services.ingestion.app.rebuild_item_builds import rebuild_item_builds
+
+        try:
+            stats.rebuild_hero_stats_rows = rebuild_hero_stats()
+        except Exception:
+            logger.warning("rebuild_hero_stats failed", exc_info=True)
+
+        try:
+            stats.rebuild_item_build_rows = rebuild_item_builds()
+        except Exception:
+            logger.warning("rebuild_item_builds failed", exc_info=True)
+
+        logger.info(
+            "Rebuild done: hero_stats=%s rows, item_builds=%s rows",
+            stats.rebuild_hero_stats_rows,
+            stats.rebuild_item_build_rows,
+        )
+
     def run_cycle(self) -> CycleStats:
-        """Виконує один цикл discovery + ingest."""
+        """Виконує один цикл discovery + ingest + (optional) rebuild."""
         stats = CycleStats()
 
         discovered = self._discovery.discover(self._build_filter())
@@ -110,7 +148,8 @@ class Runner:
             stats.discovered, stats.skipped, stats.ingested, stats.failed,
         )
 
-        # asdict вже включає errors — не дублюємо
+        self._run_rebuild(stats)
+
         app_state.last_cycle_at = int(time.time())
         app_state.last_cycle_stats = asdict(stats)
 
@@ -147,11 +186,6 @@ class Runner:
         self.stop()
 
     def _interruptible_sleep(self, seconds: int) -> None:
-        """Sleep що переривається при stop().
-
-        Перераховує remaining в кожній ітерації — уникає negative sleep
-        і race condition якщо цикл зайняв більше часу ніж seconds.
-        """
         deadline = time.time() + seconds
         while self._running:
             remaining = deadline - time.time()
