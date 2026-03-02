@@ -12,15 +12,15 @@ from services.ingestion.db.repositories.analytics.item_build import (
     ItemBuildEntry,
     ItemBuildRepository,
 )
-from services.ingestion.db.repositories.analytics.timeline import (
-    MatchPhaseStatsRow,
-    MatchTimelineRepository,
-    MetaHeroRow,
-)
 from services.ingestion.db.repositories.analytics.matchup import (
     MatchupRepository,
     MatchupRow,
     SynergyRow,
+)
+from services.ingestion.db.repositories.analytics.timeline import (
+    MatchPhaseStatsRow,
+    MatchTimelineRepository,
+    MetaHeroRow,
 )
 
 __all__ = [

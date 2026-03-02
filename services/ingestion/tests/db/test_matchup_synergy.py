@@ -11,9 +11,7 @@ from services.ingestion.db.sqlite import init_db
 from services.ingestion.db.unit_of_work import UnitOfWork
 from services.ingestion.tests.seed_helpers import (
     seed_hero,
-    seed_match,
     seed_mp,
-    seed_role_score,
 )
 
 
