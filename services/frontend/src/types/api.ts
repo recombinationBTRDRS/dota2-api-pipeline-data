@@ -71,3 +71,8 @@ export const POSITION_LABELS: Record<number, string> = {
   4: 'Support',
   5: 'Hard Support',
 }
+
+/** Безпечний доступ до POSITION_LABELS з fallback для невідомих позицій. */
+export function getPositionLabel(pos: number): string {
+  return POSITION_LABELS[pos] ?? `Position ${pos}`
+}

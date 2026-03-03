@@ -1,73 +1,69 @@
-# React + TypeScript + Vite
+# Dota 2 Analytics — Frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+React + Vite + TypeScript frontend для Dota 2 Analytics API.
 
-Currently, two official plugins are available:
+## Вимоги
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+- Node.js 20.19+ або 22.12+
+- Backend запущений на `http://localhost:8000`
 
-## React Compiler
+## Запуск
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+cd services/frontend
+npm install
+npm run dev
+# → http://localhost:5173
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+## Build
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+```bash
+npm run build
+npm run preview
+```
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+## Змінні середовища
+
+Frontend не потребує `.env` — API проксується через Vite:
+
+```
+/api/* → http://localhost:8000/*
+```
+
+Конфіг проксі: `vite.config.ts`.
+
+## Сторінки
+
+| Route | Сторінка | Опис |
+|-------|----------|------|
+| `/` | Hero Stats | Таблиця всіх героїв з winrate/KDA, фільтр по позиції |
+| `/meta` | Meta Snapshot | Топ героїв по кожній з 5 позицій |
+| `/heroes/:id/:pos` | Hero Detail | Stats + items + matchups + synergies |
+
+## Структура
+
+```
+src/
+├── api/
+│   ├── client.ts      # fetch wrapper з ApiError
+│   ├── computed.ts    # /computed endpoints
+│   └── index.ts
+├── components/
+│   └── WinrateBadge.tsx
+├── pages/
+│   ├── HeroStatsPage.tsx + .css
+│   ├── HeroDetailPage.tsx + .css
+│   └── MetaSnapshotPage.tsx + .css
+├── types/
+│   └── api.ts         # TypeScript типи (синхронізовані з backend Pydantic)
+├── App.tsx
+└── main.tsx
+```
+
+## Lint / TypeScript
+
+```bash
+npm run lint
+npx tsc --noEmit
 ```

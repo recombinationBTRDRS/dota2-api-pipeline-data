@@ -1,14 +1,14 @@
 // services/frontend/src/pages/HeroStatsPage.tsx
 // Головна сторінка — таблиця всіх героїв з winrate/KDA.
-// Дані: GET /computed/heroes/top. Фільтр по позиції, сортування по колонках.
+// Клік по рядку → /heroes/:id/:pos
 
 import { useState, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { computedApi } from '../api'
 import type { HeroStatsResponse } from '../types/api'
-import { POSITION_LABELS } from '../types/api'
+import { getPositionLabel } from '../types/api'
 import WinrateBadge from '../components/WinrateBadge'
 import './HeroStatsPage.css'
-import { useNavigate } from 'react-router-dom'
 
 export default function HeroStatsPage() {
   const [heroes, setHeroes] = useState<HeroStatsResponse[]>([])
@@ -24,7 +24,7 @@ export default function HeroStatsPage() {
     setError(null)
     computedApi.getTopHeroes({ primary_pos: pos, min_matches: 1, limit: 100 })
       .then(setHeroes)
-      .catch((e) => setError(e.message))
+      .catch(e => setError(e instanceof Error ? e.message : String(e)))
       .finally(() => setLoading(false))
   }, [pos])
 
@@ -50,14 +50,15 @@ export default function HeroStatsPage() {
       <div className="page-header">
         <h1>Hero Stats</h1>
         <div className="filters">
-          <label>Position:</label>
+          <label htmlFor="position-select">Position:</label>
           <select
+            id="position-select"
             value={pos ?? ''}
             onChange={e => setPos(e.target.value ? Number(e.target.value) : undefined)}
           >
             <option value="">All</option>
             {[1, 2, 3, 4, 5].map(p => (
-              <option key={p} value={p}>{p} — {POSITION_LABELS[p]}</option>
+              <option key={p} value={p}>{p} — {getPositionLabel(p)}</option>
             ))}
           </select>
         </div>
@@ -91,11 +92,17 @@ export default function HeroStatsPage() {
                 key={`${h.hero_id}-${h.primary_pos}`}
                 className="clickable-row"
                 onClick={() => navigate(`/heroes/${h.hero_id}/${h.primary_pos}`)}
+                onKeyDown={e => {
+                  if (e.key === 'Enter' || e.key === ' ') navigate(`/heroes/${h.hero_id}/${h.primary_pos}`)
+                }}
+                tabIndex={0}
+                role="button"
+                aria-label={`View ${h.hero_name ?? 'hero'} detail`}
               >
                 <td className="hero-name">{h.hero_name ?? `Hero #${h.hero_id}`}</td>
                 <td>
                   <span className={`pos pos-${h.primary_pos}`}>
-                    {POSITION_LABELS[h.primary_pos]}
+                    {getPositionLabel(h.primary_pos)}
                   </span>
                 </td>
                 <td>{h.matches_played}</td>
