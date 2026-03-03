@@ -34,6 +34,8 @@ class CycleStats:
     # Epic 5.6 — rebuild stats (None якщо AUTO_REBUILD_AFTER_INGEST=False або не запускався)
     rebuild_hero_stats_rows: int | None = None
     rebuild_item_build_rows: int | None = None
+    rebuild_matchup_rows: int | None = None
+    rebuild_synergy_rows: int | None = None
 
 
 class Runner:
@@ -84,12 +86,12 @@ class Runner:
             )
 
     def _run_rebuild(self, stats: CycleStats) -> None:
-        """Rebuild pre-computed таблиць якщо AUTO_REBUILD_AFTER_INGEST=True.
+        """Rebuild всіх pre-computed таблиць якщо AUTO_REBUILD_AFTER_INGEST=True.
 
         Запускається тільки якщо ingested > 0.
-        Помилка rebuild логується як WARNING і не зупиняє runner.
-        stats поля заповнюються одразу після кожного окремого rebuild
-        щоб зберегти частковий результат при падінні другого кроку.
+        Помилка будь-якого кроку логується як WARNING і не зупиняє runner.
+        Кожне поле stats заповнюється одразу після свого rebuild —
+        часткові результати зберігаються навіть при падінні наступного кроку.
         """
         if not settings.AUTO_REBUILD_AFTER_INGEST:
             return
@@ -100,6 +102,8 @@ class Runner:
 
         from services.ingestion.app.rebuild_hero_stats import rebuild_hero_stats
         from services.ingestion.app.rebuild_item_builds import rebuild_item_builds
+        from services.ingestion.app.rebuild_matchups import rebuild_matchups
+        from services.ingestion.app.rebuild_synergies import rebuild_synergies
 
         try:
             stats.rebuild_hero_stats_rows = rebuild_hero_stats()
@@ -111,10 +115,22 @@ class Runner:
         except Exception:
             logger.warning("rebuild_item_builds failed", exc_info=True)
 
+        try:
+            stats.rebuild_matchup_rows = rebuild_matchups()
+        except Exception:
+            logger.warning("rebuild_matchups failed", exc_info=True)
+
+        try:
+            stats.rebuild_synergy_rows = rebuild_synergies()
+        except Exception:
+            logger.warning("rebuild_synergies failed", exc_info=True)
+
         logger.info(
-            "Rebuild done: hero_stats=%s rows, item_builds=%s rows",
+            "Rebuild done: hero_stats=%s item_builds=%s matchups=%s synergies=%s",
             stats.rebuild_hero_stats_rows,
             stats.rebuild_item_build_rows,
+            stats.rebuild_matchup_rows,
+            stats.rebuild_synergy_rows,
         )
 
     def run_cycle(self) -> CycleStats:
