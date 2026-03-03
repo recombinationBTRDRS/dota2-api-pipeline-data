@@ -1,11 +1,13 @@
 # Dota 2 Analytics Pipeline
 
 Аналітична платформа для Dota 2: збір матчів з OpenDota API, нормалізація,
-побудова pre-computed статистики по героях, білдах і ролях.
+побудова pre-computed статистики по героях, білдах, ролях, counter-picks і synergy.
 
 ## Статус
 
 ![CI](https://github.com/recombinationBTRDRS/dota2-api-pipeline-data/actions/workflows/ci.yml/badge.svg)
+
+**Version: 1.0.0**
 
 | Epic | Назва | Статус |
 |------|-------|--------|
@@ -13,9 +15,9 @@
 | 2 | Match Discovery Service | ✅ Done |
 | 3 | Domain Model (Heroes, Items, Roles) | ✅ Done |
 | 4 | Analytics Engine | ✅ Done |
-| R1 | Project Health, Refactor & Audit | 🔜 Next |
-| 5 | Pre-computed Data Layer | ⏳ Backlog |
-| 6 | Frontend (React) | ⏳ Backlog |
+| R1 | Project Health, Refactor & Audit | ✅ Done |
+| 5 | Pre-computed Data Layer | ✅ Done |
+| 6 | Frontend (React) | 🔜 Next |
 | 7 | Recommendation Engine | ⏳ Backlog |
 | 8 | Public API & Scale | ⏳ Backlog |
 
@@ -32,18 +34,21 @@ OpenDota API
     │   adapters → parsers → persist
     │   matches / players / match_players / match_player_items
     │
-    └─ Explorer API ─────────────────► match discovery (Epic 2)
+    └─ Explorer API ─────────────────► match discovery (Runner)
 
                     ↓
          Pre-computed Batch Jobs (Epic 5)
-    hero_aggregated_stats / hero_matchup_stats / hero_item_build_stats
+    hero_stats_computed / hero_item_build_computed
+    hero_matchup_computed / hero_synergy_computed
 
                     ↓
-           Analytics API (Epic 4)
-    /heroes/{id}/stats  /analytics/meta  /analytics/leaderboard/{pos}
+           Analytics API (Epic 4) + Computed API (Epic 5)
+    /heroes/{id}/stats     /computed/heroes/{id}/stats
+    /analytics/meta        /computed/heroes/top
+    /computed/rebuild      /computed/staleness
 
                     ↓
-           Frontend (Epic 6)
+           Frontend (Epic 6) — React/Vite/TypeScript
 ```
 
 **Шари:**
@@ -74,11 +79,24 @@ uvicorn services.ingestion.app.main:app --reload
 ```bash
 curl http://localhost:8000/health
 # {"status": "ok", "db_ok": true}
+
+curl http://localhost:8000/docs
+# Swagger UI з усіма endpoints
 ```
 
 ---
 
-## Analytics API
+## Smoke Test (реальні дані)
+
+```bash
+python scripts/smoke_test.py
+# Запускає повний pipeline на 1 реальному матчі з OpenDota API
+# Перевіряє sync, ingest, analytics
+```
+
+---
+
+## Analytics API (Epic 4 — raw queries)
 
 | Endpoint | Опис |
 |----------|------|
@@ -88,6 +106,16 @@ curl http://localhost:8000/health
 | `GET /analytics/meta` | Meta snapshot: winrate × pickrate |
 | `GET /analytics/leaderboard/{pos}` | Топ героїв на позиції |
 | `GET /analytics/hero/{id}/timeline` | Early/mid/late game статистика |
+
+## Computed API (Epic 5 — pre-computed tables)
+
+| Endpoint | Опис |
+|----------|------|
+| `POST /computed/rebuild` | Rebuild всіх pre-computed таблиць (sync) |
+| `GET /computed/staleness` | Час останнього rebuild |
+| `GET /computed/heroes/{id}/stats` | Pre-computed stats героя (з rollups по patch/region) |
+| `GET /computed/heroes/top` | Топ героїв за winrate |
+| `GET /computed/heroes/{id}/items/{pos}` | Item build для героя на позиції |
 
 Документація: `http://localhost:8000/docs`
 
@@ -106,6 +134,7 @@ curl http://localhost:8000/health
 | `DISCOVERY_INTERVAL_SEC` | `300` | Секунд між циклами |
 | `DB_PATH` | `services/ingestion/db/data.sqlite` | SQLite файл |
 | `LOG_LEVEL` | `INFO` | Рівень логування |
+| `AUTO_REBUILD_AFTER_INGEST` | `True` | Rebuild pre-computed після кожного ingest циклу |
 
 ---
 
@@ -115,6 +144,7 @@ curl http://localhost:8000/health
 pytest -q
 ruff check .
 python -m mypy services/ --ignore-missing-imports --explicit-package-bases
+python scripts/smoke_test.py
 ```
 
 ---
@@ -124,45 +154,65 @@ python -m mypy services/ --ignore-missing-imports --explicit-package-bases
 ```
 services/ingestion/
 ├── app/
-│   ├── config.py             ← pydantic-settings
-│   ├── main.py               ← FastAPI, /health, /stats
-│   ├── routers/analytics.py  ← analytics endpoints
-│   ├── enrich.py             ← Match + HeroRepository → EnrichedPlayerStats
-│   ├── ingest_match.py       ← orchestration pipeline
-│   ├── persist.py            ← domain → DB (транзакція)
+│   ├── config.py
+│   ├── main.py                    ← FastAPI v1.0.0, /health, /stats
+│   ├── runner.py                  ← Discovery + Ingest + Auto-rebuild scheduler
+│   ├── routers/
+│   │   ├── analytics.py           ← Epic 4 endpoints
+│   │   └── computed.py            ← Epic 5 endpoints
+│   ├── rebuild_hero_stats.py      ← Batch job: hero_stats_computed
+│   ├── rebuild_item_builds.py     ← Batch job: hero_item_build_computed
+│   ├── rebuild_matchups.py        ← Batch job: hero_matchup_computed
+│   ├── rebuild_synergies.py       ← Batch job: hero_synergy_computed
+│   ├── rebuild_all.py             ← Coordinator: rebuild все
+│   ├── enrich.py
+│   ├── ingest_match.py
+│   ├── persist.py
 │   ├── sync_heroes.py
 │   ├── sync_items.py
 │   └── sync_role_scores.py
 ├── db/
 │   ├── models.py
-│   ├── repositories.py       ← → рефактор в Epic R1
+│   ├── repositories/
+│   │   ├── __init__.py            ← re-export всіх репозиторіїв
+│   │   ├── base.py
+│   │   ├── matches.py
+│   │   ├── heroes.py
+│   │   ├── items.py
+│   │   ├── players.py
+│   │   └── analytics/
+│   │       ├── hero_stats.py
+│   │       ├── item_build.py
+│   │       ├── timeline.py
+│   │       ├── computed.py        ← Epic 5
+│   │       └── matchup.py         ← Epic 5.4/5.5
 │   ├── schema.sql
 │   ├── sqlite.py
 │   └── unit_of_work.py
 ├── domains/
-│   ├── heroes/               ← Hero, EnrichedPlayerStats, HERO_META (125 heroes)
+│   ├── heroes/
 │   ├── items/
-│   ├── matches/              ← Match, PlayerMatchStats
-│   ├── roles/                ← Role enum
+│   ├── matches/
+│   ├── roles/
 │   └── discovery/
 ├── providers/opendota/
-│   ├── client.py / async_client.py
-│   ├── adapters.py
-│   ├── hero_id_map.py        ← static name→id map
-│   └── explorer_client.py
 └── tests/
-    ├── app/ db/ domains/ providers/
+    ├── app/
+    ├── db/
+    ├── domains/
+    ├── providers/
     ├── integration/
-    └── e2e/
+    ├── e2e/
+    └── seed_helpers.py
 ```
 
 ---
 
 ## Документація
 
-- [`docs/architecture.md`](docs/architecture.md) — knowledge snapshot: модулі, таблиці, gaps
+- [`docs/architecture.md`](docs/architecture.md) — knowledge snapshot
 - [`docs/epics-and-tasks.md`](docs/epics-and-tasks.md) — повний roadmap
-- [`docs/high-level-plan.md`](docs/high-level-plan.md) — фазова карта продукту
+- [`docs/high-level-plan.md`](docs/high-level-plan.md) — фазова карта
 
 ---
 

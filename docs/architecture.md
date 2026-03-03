@@ -1,8 +1,6 @@
 # Architecture — Knowledge Snapshot
-> Файл-інвентаризація: що є зараз, як працює, що відомо про бізнес-логіку.
-> Оновлювати при кожному рефакторингу або зміні логіки.
+> Останнє оновлення: після Epic 5 (Pre-computed Data Layer) + R1.4 Smoke Test.
 > Мета: не пояснювати заново при старті нової сесії.
-> Останнє оновлення: після Epic 4.
 
 ---
 
@@ -13,18 +11,18 @@ External APIs (OpenDota)
         ↓
   Raw Ingestion          ← match_players, matches, items, heroes
         ↓
-  Pre-computed Tables    ← batch jobs (rebuild по тригеру або cron)
+  Pre-computed Tables    ← batch jobs (rebuild по тригеру або AUTO_REBUILD_AFTER_INGEST)
         ↓
   Analytics API          ← читає з pre-computed, не рахує по raw
         ↓
-  Frontend / Consumers
+  Frontend / Consumers   ← Epic 6 (React/Vite)
 ```
 
 **Ключова ідея:** pre-computed таблиці — бізнес-актив. Сирі матчі — тимчасовий матеріал.
 
 ---
 
-## Поточні шари (після Epic 4)
+## Поточні шари
 
 ```
 HTTP (OpenDota API)
@@ -33,11 +31,11 @@ HTTP (OpenDota API)
         ↓
   domains/                ← dict → Pydantic DTO + валідація
         ↓
-  app/                    ← orchestration: sync, ingest, enrich, persist
+  app/                    ← orchestration: sync, ingest, enrich, persist, rebuild
         ↓
   db/                     ← SQL, repositories, models
         ↓
-  SQLite
+  SQLite (dev) → PostgreSQL (Epic 8)
 ```
 
 **Правило ізоляції (жорстке):**
@@ -50,92 +48,71 @@ HTTP (OpenDota API)
 
 ## Що робить кожен модуль
 
-### `providers/opendota/`
-| Файл | Що робить |
-|------|-----------|
-| `client.py` | Синхронний HTTP, retry/backoff, rate limit |
-| `async_client.py` | Async версія через httpx |
-| `heroes_client.py` | GET /heroes |
-| `items_client.py` | GET /constants/items |
-| `explorer_client.py` | POST Explorer API (match discovery) |
-| `adapters.py` | raw JSON → нормалізований dict (контракт між provider і domain) |
-| `hero_id_map.py` | Статична мапа `name → opendota_id`, 125 героїв, вшита в код |
-
-### `domains/`
-| Файл | Що робить |
-|------|-----------|
-| `matches/dtos.py` | `Match`, `PlayerMatchStats` (Pydantic) |
-| `matches/parsers.py` | dict → Match DTO |
-| `heroes/dtos.py` | `Hero`, `EnrichedPlayerStats` (Pydantic) |
-| `heroes/meta.py` | `HERO_META` — статичні бали pos1..pos5, 125 героїв, по імені |
-| `heroes/parsers.py` | dict → Hero DTO |
-| `items/dtos.py` | `Item` (Pydantic) |
-| `items/parsers.py` | dict → Item DTO |
-| `roles/dtos.py` | `Role` enum: CARRY=1, MID=2, OFFLANE=3, SUPPORT=4, HARD_SUPPORT=5 |
-| `discovery/dtos.py` | Фільтри для пошуку матчів |
-| `discovery/query_builder.py` | Будує SQL для Explorer API |
-
 ### `app/`
 | Файл | Що робить |
 |------|-----------|
-| `config.py` | Всі налаштування через pydantic-settings + .env |
-| `main.py` | FastAPI app, lifespan, /health, /stats |
-| `routers/analytics.py` | Analytics endpoints (Epic 4) |
+| `config.py` | pydantic-settings, ENV, всі налаштування |
+| `main.py` | FastAPI v1.0.0, lifespan, /health, /stats |
+| `runner.py` | Discovery + Ingest цикл + AUTO_REBUILD_AFTER_INGEST |
+| `routers/analytics.py` | Epic 4 endpoints (raw query) |
+| `routers/computed.py` | Epic 5 endpoints (pre-computed) |
+| `rebuild_hero_stats.py` | Batch job: DELETE + INSERT hero_stats_computed (з Python rollups) |
+| `rebuild_item_builds.py` | Batch job: DELETE + INSERT hero_item_build_computed |
+| `rebuild_matchups.py` | Batch job: hero_matchup_computed (counter matrix) |
+| `rebuild_synergies.py` | Batch job: hero_synergy_computed (synergy matrix) |
+| `rebuild_all.py` | Coordinator: викликає всі rebuild functions |
 | `sync_heroes.py` | OpenDota /heroes → heroes table |
 | `sync_items.py` | OpenDota /constants/items → items table |
 | `sync_role_scores.py` | HERO_META + hero_id_map → hero_role_scores table |
 | `ingest_match.py` | fetch → adapt → parse → persist |
 | `enrich.py` | Match DTO + HeroRepository → EnrichedPlayerStats |
-| `persist.py` | Match domain → DB (одна транзакція, batch items) |
+| `persist.py` | Match domain → DB (одна транзакція) |
 | `state.py` | In-memory стан останнього discovery циклу |
 
-### `db/` (поточний стан, перед R1 рефактором)
+### `db/repositories/`
 | Файл | Що робить |
 |------|-----------|
-| `schema.sql` | DDL всіх таблиць + індекси |
-| `sqlite.py` | `get_connection()`, `init_db()`, `DB_PATH` |
-| `unit_of_work.py` | Context manager для транзакцій |
-| `models.py` | Dataclass'и що відповідають рядкам таблиць |
-| `repositories.py` | Всі репозиторії — один файл ~800 рядків (**кандидат на R1 рефактор**) |
+| `__init__.py` | Re-export всіх репозиторіїв (backward compat) |
+| `base.py` | `_EARLY_MAX`, `_MID_MAX`, `_MAX_ERROR_LEN` |
+| `matches.py` | Match, MatchPlayer, MatchPlayerItem, IngestionLog write repos |
+| `heroes.py` | Hero, HeroRoleScore write repos |
+| `items.py` | Item write repo |
+| `players.py` | Player write repo |
+| `analytics/hero_stats.py` | HeroStatsRepository (winrate/KDA, role leaderboard) |
+| `analytics/item_build.py` | ItemBuildRepository (item popularity) |
+| `analytics/timeline.py` | MatchTimelineRepository (early/mid/late, meta snapshot) |
+| `analytics/computed.py` | ComputedStatsRepository (pre-computed reads, Epic 5) |
+| `analytics/matchup.py` | MatchupRepository (counter + synergy matrix reads, Epic 5.4/5.5) |
 
 ---
 
-## Таблиці БД — поточний стан
+## Таблиці БД
 
-| Таблиця | PK | Що зберігає | Примітки |
-|---------|----|-------------|---------|
-| `matches` | `id` | match_id, duration, radiant_win, start_time | `patch`, `region` — **завжди NULL** |
-| `players` | `id` (autoincrement) | account_id | `rank_tier`, `mmr` — **завжди NULL** |
-| `match_players` | `(match_id, player_slot)` | hero_id, kills, deaths, assists, gpm, xpm, win | `lane_role` **не збираємо** |
-| `match_player_items` | `(match_id, player_slot, slot)` | item_id (slots 0-5) | backpack (6-8), neutral — **не збираємо** |
+### Raw data
+| Таблиця | PK | Що зберігає | Стан |
+|---------|----|-------------|------|
+| `matches` | `id` | match_id, duration, radiant_win, start_time, patch, region | ✅ patch і region заповнюються |
+| `players` | `id` (autoincrement) | account_id | rank_tier, mmr — не збираємо |
+| `match_players` | `(match_id, player_slot)` | hero_id, kills, deaths, assists, gpm, xpm, win, lane_role, is_roaming | lane_role NULL (матч не парсений) |
+| `match_player_items` | `(match_id, player_slot, slot)` | item_id (slots 0-5) | backpack (6-8), neutral — не збираємо |
 | `ingestion_log` | `match_id` | status, ingested_at, error | |
-| `heroes` | `id` | name, localized_name, primary_attr, attack_type | |
-| `items` | `id` | name, localized_name, cost, flags | |
-| `hero_role_scores` | `hero_id` | pos1-5, flex_score, primary_pos | pre-computed з HERO_META |
+| `heroes` | `id` | name, localized_name, primary_attr, attack_type | 127 героїв |
+| `items` | `id` | name, localized_name, cost, flags | 470 items |
+| `hero_role_scores` | `hero_id` | pos1-5, flex_score, primary_pos | 126/127 (Grimstroke gap) |
+
+### Pre-computed (Epic 5)
+| Таблиця | PK | Що зберігає | Особливості |
+|---------|----|-------------|------------|
+| `hero_stats_computed` | `id` (AUTOINCREMENT) | winrate, KDA, GPM по hero+pos+patch+region | UNIQUE index з COALESCE(-1); rollups (NULL patch/region) |
+| `hero_item_build_computed` | `(hero_id, primary_pos, item_id)` | times_bought, times_won | |
+| `hero_matchup_computed` | `(hero_id, opponent_id)` | matches, wins (обидва напрямки) | is_radiant = player_slot < 128 |
+| `hero_synergy_computed` | `(hero_id, ally_id)` | matches, wins | hero_id < ally_id завжди |
 
 ---
 
-## Репозиторії — поточний стан (перед R1)
+## Analytics API endpoints
 
-**Write репозиторії:**
-- `MatchRepository`, `MatchPlayerRepository`, `MatchPlayerItemRepository`
-- `PlayerRepository`
-- `IngestionLogRepository`
-- `HeroRepository`, `HeroRoleScoreRepository`
-- `ItemRepository`
-
-**Analytics репозиторії (read-only, Epic 4):**
-- `HeroStatsRepository` — winrate/pickrate/KDA (Task 4.1, 4.2)
-- `ItemBuildRepository` — популярність items (Task 4.3)
-- `MatchTimelineRepository` — early/mid/late + meta snapshot (Task 4.4)
-
-**Analytics dataclasses:**
-`HeroStatsRow`, `HeroRoleStatsRow`, `ItemBuildEntry`, `MetaHeroRow`, `MatchPhaseStatsRow`
-
----
-
-## Analytics API endpoints (після Epic 4)
-
+### Epic 4 (raw queries)
 ```
 GET /heroes/{id}/stats                 → winrate, KDA, GPM
 GET /heroes/{id}/stats/role/{pos}      → stats на конкретній позиції
@@ -145,80 +122,86 @@ GET /analytics/leaderboard/{pos}       → топ по позиції
 GET /analytics/hero/{id}/timeline      → early/mid/late stats
 ```
 
+### Epic 5 (pre-computed)
+```
+POST /computed/rebuild                 → rebuild всіх pre-computed таблиць
+GET  /computed/staleness               → час останнього rebuild
+GET  /computed/heroes/{id}/stats       → pre-computed stats з rollups
+GET  /computed/heroes/top              → топ за winrate
+GET  /computed/heroes/{id}/items/{pos} → item build
+```
+
 ---
 
-## Константи — де живуть
+## Pre-computed rebuild flow
+
+```
+Runner.run_cycle()
+    → ingest N matches
+    → if ingested > 0 and AUTO_REBUILD_AFTER_INGEST:
+        → _run_rebuild(stats)
+            → rebuild_hero_stats()    ← Python rollup агрегація
+            → rebuild_item_builds()
+            → [matchups і synergies — manual trigger або окремий scheduler]
+```
+
+**Rollup логіка в `rebuild_hero_stats`:**
+Один granular SELECT, потім Python dict агрегує 4 варіанти:
+- `(patch, region)` — granular
+- `(patch, None)` — rollup по регіонах
+- `(None, region)` — rollup по патчах
+- `(None, None)` — глобальний агрегат
+
+Дублікати усуваються через dict key — якщо patch вже NULL в source, rollup не дублює.
+
+---
+
+## Відомі gaps і open questions
+
+| Gap | Стан | Пріоритет |
+|-----|------|-----------|
+| `lane_role` / `is_roaming` | NULL (матч не парсений OpenDota) | 🟡 Середній |
+| Grimstroke без role scores | HERO_META gap | 🟡 Середній |
+| matchup/synergy endpoints | Batch jobs є, API endpoints — немає | 🔴 Треба додати |
+| Backpack items (slots 6-8) | Не збираємо | 🟢 Низький |
+| rank_tier, mmr | Не збираємо | 🟢 Низький |
+| PostgreSQL migration | Epic 8 | ⏳ |
+| Docker Compose | Epic 8 | ⏳ |
+
+---
+
+## Константи
 
 ### В `config.py` (через .env):
 ```
 OPENDOTA_BASE_URL, OPENDOTA_RATE_LIMIT, OPENDOTA_TIMEOUT, OPENDOTA_RETRIES
 DISCOVERY_LOBBY_TYPE, DISCOVERY_MIN_MMR, DISCOVERY_LIMIT, DISCOVERY_INTERVAL_SEC
-DISCOVERY_PATCH, DISCOVERY_REGION
-DB_PATH, LOG_LEVEL
+DISCOVERY_PATCH, DISCOVERY_REGION, DB_PATH, LOG_LEVEL
+AUTO_REBUILD_AFTER_INGEST
 ```
 
-### Захардкоджені в коді — **кандидати на config:**
+### Захардкоджені (кандидати на config — BL1.6):
 ```python
-_EARLY_MAX = 1800    # repositories.py — межа early/mid фази
-_MID_MAX = 3000      # repositories.py — межа mid/late фази
-_MAX_ERROR_LEN = 500 # repositories.py — обрізка error string
-range(6)             # adapters.py — кількість item slots
-flex_score_threshold  # sync_role_scores.py — поріг для flex hero
-```
-
-### Статичні дані вшиті в код (не в config, не в DB):
-```python
-HERO_META = {...}          # domains/heroes/meta.py — pos1-5 для 125 героїв
-OPENDOTA_HERO_IDS = {...}  # providers/opendota/hero_id_map.py — name → id
+_EARLY_MAX = 1800    # base.py — межа early/mid фази
+_MID_MAX = 3000      # base.py — межа mid/late фази
+_MAX_ERROR_LEN = 500 # base.py — обрізка error string
+flex_score >= 3      # sync_role_scores.py
+range(6)             # adapters.py — item slots
 ```
 
 ---
 
-## Відомі gaps і відкриті питання
+## R1.4 Smoke Test результат (реальні дані)
 
-### Поля що не збираємо але є в API:
-| Поле | Де в API | Де мало б бути | Рішення |
-|------|----------|---------------|---------|
-| `lane_role` | player JSON | `match_players` | BL1.2 |
-| `is_roaming` | player JSON | `match_players` | BL1.2 |
-| `patch` | match JSON | `matches` | BL1.1 |
-| `region` | match JSON | `matches` | BL1.1 |
-| `rank_tier` | player JSON | `players` | BL1.1 |
-| `backpack_0..2` | player JSON | `match_player_items` | BL1.3 |
-| `item_neutral` | player JSON | `match_player_items` | BL1.3 |
-
-### primary_pos — як рахується:
-1. `HERO_META` (статика в коді) — бали pos1-5 по імені героя
-2. `sync_role_scores.py` → `hero_role_scores` table
-3. `primary_pos` = позиція з найвищим балом
-4. **⚠️ Це статична оцінка**, не реальна позиція з матчу
-5. В analytics (Task 4.2) використовується як proxy — approximation
-
-### Що не перевірялось на реальних даних:
-- Чи adapter коректно нормалізує всі поля real API
-- Чи є розбіжності між fixtures і реальним JSON
-- Чи analytics endpoints повертають розумні цифри
-
----
-
-## Заплановані зміни (Epic 5 — Pre-computed Layer)
-
-**Нові таблиці:**
-```sql
-hero_aggregated_stats     -- winrate, pickrate по patch/region
-hero_role_aggregated_stats
-hero_item_build_stats     -- топ builds
-hero_matchup_stats        -- counter matrix (hero_a vs hero_b)
-hero_synergy_stats        -- synergy matrix (hero_a with hero_b)
-item_effectiveness
-```
-
-**Новий flow:**
-```
-Raw matches → Batch Job → Pre-computed Tables → Analytics API
-```
-
-Analytics API перейде з читання `match_players` на читання pre-computed таблиць.
+Матч `8709253716`, OpenDota API, 2026-03:
+- ✅ sync_heroes: 127 героїв
+- ✅ sync_items: 470 items
+- ✅ sync_role_scores: 126 записів (Grimstroke — gap в HERO_META)
+- ✅ ingest_match: 10/10 гравців, patch=59, region=3
+- ✅ account_id sentinel (4294967295) не зберігається
+- ✅ match_player_items: 58 записів
+- ✅ Analytics: HeroStats, MetaSnapshot, Timeline — відповіді коректні
+- ⚠️ lane_role NULL для всіх 10 гравців (матч не парсений — очікувана поведінка)
 
 ---
 
@@ -230,19 +213,22 @@ tests/
 │   ├── test_enrich.py
 │   ├── test_persist.py
 │   ├── test_ingest_match.py
-│   └── test_analytics_endpoints.py    ← FastAPI TestClient
+│   ├── test_analytics_endpoints.py
+│   ├── test_computed_endpoints.py   ← Epic 5
+│   └── test_runner_rebuild.py       ← Epic 5.6
 ├── db/
 │   ├── test_repositories.py
 │   ├── test_hero_stats_repository.py
 │   ├── test_hero_role_stats_repository.py
 │   ├── test_item_build_repository.py
-│   └── test_match_timeline_repository.py
+│   ├── test_match_timeline_repository.py
+│   ├── test_computed_repository.py  ← Epic 5
+│   └── test_matchup_synergy.py      ← Epic 5.4/5.5
 ├── domains/
 ├── providers/
 ├── integration/
-└── e2e/
-    ├── test_domain_model_cycle.py
-    └── test_analytics_cycle.py
+├── e2e/
+└── seed_helpers.py                  ← shared test utilities
 ```
 
 ---
@@ -257,4 +243,5 @@ SQLite (dev) → PostgreSQL (Epic 8)
 httpx 0.27 (async) + requests 2.31 (sync)
 pytest 9.0 + pytest-asyncio
 ruff 0.2 + mypy 1.8
+GitHub Actions CI
 ```
