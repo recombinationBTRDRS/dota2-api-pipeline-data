@@ -1,6 +1,7 @@
 // services/frontend/src/App.tsx
 import { BrowserRouter, Routes, Route, Link } from 'react-router-dom'
 import HeroStatsPage from './pages/HeroStatsPage'
+import HeroDetailPage from './pages/HeroDetailPage'
 import './App.css'
 
 export default function App() {
@@ -15,6 +16,7 @@ export default function App() {
       <main className="main-content">
         <Routes>
           <Route path="/" element={<HeroStatsPage />} />
+          <Route path="/heroes/:id/:pos" element={<HeroDetailPage />} />
         </Routes>
       </main>
     </BrowserRouter>

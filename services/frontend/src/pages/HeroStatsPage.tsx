@@ -8,6 +8,7 @@ import type { HeroStatsResponse } from '../types/api'
 import { POSITION_LABELS } from '../types/api'
 import WinrateBadge from '../components/WinrateBadge'
 import './HeroStatsPage.css'
+import { useNavigate } from 'react-router-dom'
 
 export default function HeroStatsPage() {
   const [heroes, setHeroes] = useState<HeroStatsResponse[]>([])
@@ -16,6 +17,7 @@ export default function HeroStatsPage() {
   const [pos, setPos] = useState<number | undefined>(undefined)
   const [sortKey, setSortKey] = useState<keyof HeroStatsResponse>('winrate')
   const [sortAsc, setSortAsc] = useState(false)
+  const navigate = useNavigate()
 
   useEffect(() => {
     setLoading(true)
@@ -85,7 +87,11 @@ export default function HeroStatsPage() {
           </thead>
           <tbody>
             {sorted.map(h => (
-              <tr key={`${h.hero_id}-${h.primary_pos}`}>
+              <tr
+                key={`${h.hero_id}-${h.primary_pos}`}
+                className="clickable-row"
+                onClick={() => navigate(`/heroes/${h.hero_id}/${h.primary_pos}`)}
+              >
                 <td className="hero-name">{h.hero_name ?? `Hero #${h.hero_id}`}</td>
                 <td>
                   <span className={`pos pos-${h.primary_pos}`}>

@@ -47,3 +47,5 @@
 .pos-3 { background: #3a2a0a; color: #d29922; }
 .pos-4 { background: #1f3a2a; color: #3fb950; }
 .pos-5 { background: #3a1f2a; color: #f778ba; }
+
+.clickable-row { cursor: pointer; }

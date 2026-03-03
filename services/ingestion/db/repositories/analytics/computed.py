@@ -91,10 +91,11 @@ class ComputedStatsRepository:
         patch: int | None = None,
         region: int | None = None,
     ) -> list[ComputedHeroStatsRow]:
-        """Повертає статистику героя по всіх ролях (з фільтром по patch/region).
+        """Повертає статистику героя по всіх ролях.
 
-        patch=None  → агрегат по всіх патчах
-        region=None → агрегат по всіх регіонах
+        patch=None  → повертає всі рядки включно з rollups (patch IS NULL)
+        patch=59    → тільки рядки з patch=59
+        Аналогічно для region.
         """
         if not isinstance(hero_id, int) or hero_id <= 0:
             raise ValueError(f"hero_id must be int > 0, got {hero_id!r}")
@@ -121,7 +122,15 @@ class ComputedStatsRepository:
         min_matches: int = 20,
         limit: int = 10,
     ) -> list[ComputedHeroStatsRow]:
-        """Топ героїв по winrate з pre-computed таблиці."""
+        """Топ героїв по winrate.
+
+        Завжди повертає тільки глобальні агрегати (patch IS NULL AND region IS NULL).
+        Параметр patch фільтрує по patch — але тільки серед глобальних агрегатів
+        це не має сенсу, тому patch тут зарезервований для майбутнього і ігнорується.
+
+        primary_pos=None → всі позиції (один рядок на героя — найкраща позиція).
+        primary_pos=2    → тільки pos=2.
+        """
         if not isinstance(min_matches, int) or min_matches < 0:
             raise ValueError(f"min_matches must be int >= 0, got {min_matches!r}")
         if not isinstance(limit, int) or limit <= 0:
@@ -136,13 +145,12 @@ class ComputedStatsRepository:
             LEFT JOIN heroes h ON h.id = hsc.hero_id
             WHERE hsc.matches_played >= ?
               AND (? IS NULL OR hsc.primary_pos = ?)
-              AND (? IS NULL OR hsc.patch = ?)
               AND hsc.patch IS NULL
               AND hsc.region IS NULL
             ORDER BY (hsc.wins * 1.0 / hsc.matches_played) DESC
             LIMIT ?
             """,
-            (min_matches, primary_pos, primary_pos, patch, patch, limit),
+            (min_matches, primary_pos, primary_pos, limit),
         ).fetchall()
         return [_build_hero_stats(r) for r in rows]
 
@@ -175,10 +183,7 @@ class ComputedStatsRepository:
         return [_build_item_build(r) for r in rows]
 
     def get_staleness(self) -> dict[str, int | None]:
-        """Повертає unix timestamp останнього rebuild кожної таблиці.
-
-        None якщо таблиця пуста (rebuild ще не запускався).
-        """
+        """Повертає unix timestamp останнього rebuild кожної таблиці."""
         def _latest(table: str) -> int | None:
             row = self.conn.execute(
                 f"SELECT MAX(computed_at) as t FROM {table}"
