@@ -1,0 +1,32 @@
+/* services/frontend/src/App.css */
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  background: #0d1117;
+  color: #e6edf3;
+  min-height: 100vh;
+}
+
+.navbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 24px;
+  height: 56px;
+  background: #161b22;
+  border-bottom: 1px solid #30363d;
+}
+
+.navbar-brand { font-size: 18px; font-weight: 600; color: #58a6ff; }
+
+.navbar-links a {
+  color: #e6edf3;
+  text-decoration: none;
+  padding: 6px 12px;
+  border-radius: 6px;
+  transition: background 0.15s;
+}
+.navbar-links a:hover { background: #21262d; }
+
+.main-content { max-width: 1200px; margin: 0 auto; padding: 24px 16px; }

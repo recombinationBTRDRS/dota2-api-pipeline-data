@@ -137,6 +137,7 @@ class ComputedStatsRepository:
             WHERE hsc.matches_played >= ?
               AND (? IS NULL OR hsc.primary_pos = ?)
               AND (? IS NULL OR hsc.patch = ?)
+              AND hsc.patch IS NULL
               AND hsc.region IS NULL
             ORDER BY (hsc.wins * 1.0 / hsc.matches_played) DESC
             LIMIT ?
