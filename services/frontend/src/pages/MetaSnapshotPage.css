@@ -1,0 +1,123 @@
+/* services/frontend/src/pages/MetaSnapshotPage.css */
+
+.page-header {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: 24px;
+}
+.page-header h1 { font-size: 24px; font-weight: 600; }
+.page-subtitle { font-size: 14px; color: #8b949e; }
+
+/* 5 колонок — на вузьких екранах 2-3 */
+.meta-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 12px;
+}
+
+@media (max-width: 1100px) {
+  .meta-grid { grid-template-columns: repeat(3, 1fr); }
+}
+@media (max-width: 700px) {
+  .meta-grid { grid-template-columns: repeat(2, 1fr); }
+}
+
+.meta-column {
+  background: #161b22;
+  border: 1px solid #30363d;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+/* Column header — колір по позиції */
+.col-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid #30363d;
+}
+
+.col-pos {
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.col-label {
+  font-size: 13px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.col-header-1 { background: #1a2f4a; }
+.col-header-1 .col-pos, .col-header-1 .col-label { color: #58a6ff; }
+
+.col-header-2 { background: #2a1a4a; }
+.col-header-2 .col-pos, .col-header-2 .col-label { color: #a371f7; }
+
+.col-header-3 { background: #2e2210; }
+.col-header-3 .col-pos, .col-header-3 .col-label { color: #d29922; }
+
+.col-header-4 { background: #1a2e20; }
+.col-header-4 .col-pos, .col-header-4 .col-label { color: #3fb950; }
+
+.col-header-5 { background: #2e1a22; }
+.col-header-5 .col-pos, .col-header-5 .col-label { color: #f778ba; }
+
+.col-state {
+  padding: 20px 12px;
+  font-size: 13px;
+  color: #8b949e;
+  text-align: center;
+}
+.col-state.error { color: #f85149; }
+.col-state.muted { color: #484f58; }
+
+.hero-col-list {
+  list-style: none;
+  padding: 6px 0;
+  margin: 0;
+}
+
+.hero-col-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  cursor: pointer;
+  transition: background 0.1s;
+  font-size: 13px;
+}
+.hero-col-row:hover { background: #21262d; }
+
+.hero-rank {
+  font-size: 11px;
+  color: #484f58;
+  width: 14px;
+  text-align: right;
+  flex-shrink: 0;
+}
+
+.hero-col-name {
+  flex: 1;
+  color: #e6edf3;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.hero-col-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.hero-col-matches {
+  font-size: 11px;
+  color: #484f58;
+}
