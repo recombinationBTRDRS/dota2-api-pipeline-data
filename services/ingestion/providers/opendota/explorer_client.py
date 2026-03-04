@@ -134,8 +134,8 @@ class OpenDotaExplorerClient:
         """
         sql = build_explorer_sql(f)
         logger.info(
-            "Discovery query: lobby_type=%s min_mmr=%s limit=%s patch=%s region=%s",
-            f.lobby_type, f.min_mmr, f.limit, f.patch, f.region,
+            "Discovery query: lobby_type=%s min_rank_tier=%s limit=%s patch=%s region=%s",
+            f.lobby_type, f.min_rank_tier, f.limit, f.patch, f.region,
         )
         rows = self._get(sql)
         matches = [DiscoveredMatch(match_id=row["match_id"]) for row in rows]
