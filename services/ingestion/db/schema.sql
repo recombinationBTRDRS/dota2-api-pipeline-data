@@ -21,18 +21,24 @@ CREATE TABLE IF NOT EXISTS players (
 );
 
 CREATE TABLE IF NOT EXISTS match_players (
-    match_id    INTEGER NOT NULL,
-    player_slot INTEGER NOT NULL,
-    player_id   INTEGER,
-    hero_id     INTEGER NOT NULL,
-    kills       INTEGER NOT NULL,
-    deaths      INTEGER NOT NULL,
-    assists     INTEGER NOT NULL,
-    gpm         INTEGER NOT NULL,
-    xpm         INTEGER NOT NULL,
-    win         BOOLEAN NOT NULL,
-    lane_role   INTEGER CHECK(lane_role IS NULL OR lane_role BETWEEN 1 AND 4),
-    is_roaming  BOOLEAN NOT NULL DEFAULT 0,
+    match_id     INTEGER NOT NULL,
+    player_slot  INTEGER NOT NULL,
+    player_id    INTEGER,
+    hero_id      INTEGER NOT NULL,
+    kills        INTEGER NOT NULL,
+    deaths       INTEGER NOT NULL,
+    assists      INTEGER NOT NULL,
+    gpm          INTEGER NOT NULL,
+    xpm          INTEGER NOT NULL,
+    win          BOOLEAN NOT NULL,
+    lane_role    INTEGER CHECK(lane_role IS NULL OR lane_role BETWEEN 1 AND 4),
+    is_roaming   BOOLEAN NOT NULL DEFAULT 0,
+    -- Task 7.6: performance fields (NULL for unparse matches or old data)
+    net_worth    INTEGER,
+    hero_damage  INTEGER,
+    tower_damage INTEGER,
+    hero_healing INTEGER,
+    last_hits    INTEGER,
     PRIMARY KEY (match_id, player_slot),
     FOREIGN KEY (match_id)  REFERENCES matches(id)  ON DELETE CASCADE,
     FOREIGN KEY (player_id) REFERENCES players(id)  ON DELETE SET NULL
@@ -92,10 +98,6 @@ CREATE TABLE IF NOT EXISTS match_player_items (
 );
 
 -- Pre-computed layer (Epic 5)
--- patch/region = NULL = rollup (aggregate over all patches/regions).
--- PRIMARY KEY excludes patch/region because SQLite treats NULL != NULL,
--- causing duplicates on UPSERT. Uniqueness is enforced via UNIQUE expression
--- index with COALESCE(-1 as sentinel for NULL).
 
 CREATE TABLE IF NOT EXISTS hero_stats_computed (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -135,10 +137,6 @@ CREATE TABLE IF NOT EXISTS hero_item_build_computed (
 
 CREATE INDEX IF NOT EXISTS idx_hibc_hero_pos ON hero_item_build_computed (hero_id, primary_pos);
 
--- 5.4 Counter matrix: winrate героя A проти героя B (різні команди)
--- hero_id — герой якого аналізуємо
--- opponent_id — герой суперника
--- wins — кількість перемог hero_id проти opponent_id
 CREATE TABLE IF NOT EXISTS hero_matchup_computed (
     hero_id     INTEGER NOT NULL,
     opponent_id INTEGER NOT NULL,
@@ -153,8 +151,6 @@ CREATE TABLE IF NOT EXISTS hero_matchup_computed (
 CREATE INDEX IF NOT EXISTS idx_hmc_hero_id     ON hero_matchup_computed (hero_id);
 CREATE INDEX IF NOT EXISTS idx_hmc_opponent_id ON hero_matchup_computed (opponent_id);
 
--- 5.5 Synergy matrix: winrate пари (A + B) в одній команді
--- hero_id < ally_id завжди — уникаємо дублів (A,B) і (B,A)
 CREATE TABLE IF NOT EXISTS hero_synergy_computed (
     hero_id     INTEGER NOT NULL,
     ally_id     INTEGER NOT NULL,

@@ -9,8 +9,8 @@ class MatchDB:
     start_time: int
     duration: int
     radiant_win: bool
-    patch: int | None    # BL1.1: тепер заповнюється з API
-    region: int | None   # BL1.1: тепер заповнюється з API
+    patch: int | None
+    region: int | None
 
 
 @dataclass(slots=True)
@@ -33,22 +33,22 @@ class MatchPlayerDB:
     xpm: int
     win: bool
     player_slot: int
-    lane_role: int | None  # BL1.2: реальна позиція (1-4), None якщо API не повернув
-    is_roaming: bool        # BL1.2: pos4 (False) vs pos5/roaming (True)
+    lane_role: int | None
+    is_roaming: bool
+    # Task 7.6 — додаткові performance поля
+    net_worth: int | None
+    hero_damage: int | None
+    tower_damage: int | None
+    hero_healing: int | None
+    last_hits: int | None
 
 
 @dataclass(slots=True)
 class MatchPlayerItemDB:
-    """Один предмет гравця у матчі.
-
-    slot: 0–5 (6 item slots у Dota 2).
-    item_id > 0 — item_id=0 (порожній слот) не зберігається, фільтрується в persist.py.
-    BL1.3: backpack (6-8) і item_neutral — майбутнє розширення.
-    """
     match_id: int
     player_slot: int
-    slot: int     # 0–5
-    item_id: int  # > 0
+    slot: int
+    item_id: int
 
 
 @dataclass(slots=True)
