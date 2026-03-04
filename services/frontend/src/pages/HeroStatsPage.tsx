@@ -41,9 +41,12 @@ export default function HeroStatsPage() {
   }
 
   const sorted = [...heroes].sort((a, b) => {
-    const av = a[sortKey] ?? 0
-    const bv = b[sortKey] ?? 0
-    const cmp = av < bv ? -1 : av > bv ? 1 : 0
+        const av = a[sortKey]
+        const bv = b[sortKey]
+        const cmp =
+          typeof av === 'string' || typeof bv === 'string'
+            ? String(av ?? '').localeCompare(String(bv ?? ''))
+            : Number(av ?? 0) - Number(bv ?? 0)
     return sortAsc ? cmp : -cmp
   })
 
@@ -105,9 +108,6 @@ export default function HeroStatsPage() {
                     type="button"
                     className="th-btn"
                     onClick={() => handleSort(key)}
-                    onKeyDown={e => {
-                      if (e.key === 'Enter' || e.key === ' ') handleSort(key)
-                    }}
                     aria-label={`Sort by ${label}`}
                   >
                     {label} <SortIcon col={key} />

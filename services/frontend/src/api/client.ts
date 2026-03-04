@@ -37,5 +37,9 @@ export async function apiFetch<T>(path: string, options?: RequestInit): Promise<
     throw new ApiError(res.status, `Unexpected content-type: ${contentType}`)
   }
 
-  return JSON.parse(body) as T
+  try {
+    return JSON.parse(body) as T
+  } catch {
+    throw new ApiError(res.status, 'Invalid JSON response')
+  }
 }
