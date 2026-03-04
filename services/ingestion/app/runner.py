@@ -23,15 +23,11 @@ _MIN_INTERVAL_SEC = 10
 
 @dataclass
 class CycleStats:
-    """Статистика одного циклу discovery + ingest."""
-
     discovered: int = 0
     skipped: int = 0
     ingested: int = 0
     failed: int = 0
     errors: list[tuple[int, str]] = field(default_factory=list)
-
-    # Epic 5.6 — rebuild stats (None якщо AUTO_REBUILD_AFTER_INGEST=False або не запускався)
     rebuild_hero_stats_rows: int | None = None
     rebuild_item_build_rows: int | None = None
     rebuild_matchup_rows: int | None = None
@@ -39,8 +35,6 @@ class CycleStats:
 
 
 class Runner:
-    """Discovery + Ingest runner з deduplication і graceful shutdown."""
-
     def __init__(
         self,
         discovery_provider: DiscoveryProvider | None = None,
@@ -49,21 +43,18 @@ class Runner:
     ) -> None:
         self._discovery = discovery_provider or OpenDotaExplorerClient()
         self._match_provider = match_provider
-
         raw_interval = interval_sec if interval_sec is not None else settings.DISCOVERY_INTERVAL_SEC
         if raw_interval <= 0:
-            logger.warning(
-                "interval_sec=%s is invalid, falling back to minimum %s",
-                raw_interval, _MIN_INTERVAL_SEC,
-            )
+            logger.warning("interval_sec=%s invalid, fallback to %s", raw_interval, _MIN_INTERVAL_SEC)
             raw_interval = _MIN_INTERVAL_SEC
         self._interval = raw_interval
         self._running = False
 
     def _build_filter(self) -> DiscoveryFilter:
+        # Epic 7.1: min_mmr → min_rank_tier (avg_mmr видалено з OpenDota public_matches)
         return DiscoveryFilter(
             lobby_type=settings.DISCOVERY_LOBBY_TYPE,
-            min_mmr=settings.DISCOVERY_MIN_MMR,
+            min_rank_tier=settings.DISCOVERY_MIN_RANK_TIER,
             limit=settings.DISCOVERY_LIMIT,
             patch=settings.DISCOVERY_PATCH,
             region=settings.DISCOVERY_REGION,
@@ -75,29 +66,17 @@ class Runner:
 
     def _mark_ok(self, match_id: int) -> None:
         with UnitOfWork() as uow:
-            IngestionLogRepository(uow.conn).mark_ok(
-                match_id=match_id, ingested_at=int(time.time()),
-            )
+            IngestionLogRepository(uow.conn).mark_ok(match_id=match_id, ingested_at=int(time.time()))
 
     def _mark_failed(self, match_id: int, error: str) -> None:
         with UnitOfWork() as uow:
-            IngestionLogRepository(uow.conn).mark_failed(
-                match_id=match_id, ingested_at=int(time.time()), error=error,
-            )
+            IngestionLogRepository(uow.conn).mark_failed(match_id=match_id, ingested_at=int(time.time()), error=error)
 
     def _run_rebuild(self, stats: CycleStats) -> None:
-        """Rebuild всіх pre-computed таблиць якщо AUTO_REBUILD_AFTER_INGEST=True.
-
-        Запускається тільки якщо ingested > 0.
-        Помилка будь-якого кроку логується як WARNING і не зупиняє runner.
-        Кожне поле stats заповнюється одразу після свого rebuild —
-        часткові результати зберігаються навіть при падінні наступного кроку.
-        """
         if not settings.AUTO_REBUILD_AFTER_INGEST:
             return
-
         if stats.ingested == 0:
-            logger.debug("Skipping rebuild — no new matches ingested this cycle")
+            logger.debug("Skipping rebuild — no new matches ingested")
             return
 
         from services.ingestion.app.rebuild_hero_stats import rebuild_hero_stats
@@ -105,49 +84,33 @@ class Runner:
         from services.ingestion.app.rebuild_matchups import rebuild_matchups
         from services.ingestion.app.rebuild_synergies import rebuild_synergies
 
-        try:
-            stats.rebuild_hero_stats_rows = rebuild_hero_stats()
-        except Exception:
-            logger.warning("rebuild_hero_stats failed", exc_info=True)
-
-        try:
-            stats.rebuild_item_build_rows = rebuild_item_builds()
-        except Exception:
-            logger.warning("rebuild_item_builds failed", exc_info=True)
-
-        try:
-            stats.rebuild_matchup_rows = rebuild_matchups()
-        except Exception:
-            logger.warning("rebuild_matchups failed", exc_info=True)
-
-        try:
-            stats.rebuild_synergy_rows = rebuild_synergies()
-        except Exception:
-            logger.warning("rebuild_synergies failed", exc_info=True)
+        for name, fn, attr in [
+            ("hero_stats",  rebuild_hero_stats,  "rebuild_hero_stats_rows"),
+            ("item_builds", rebuild_item_builds, "rebuild_item_build_rows"),
+            ("matchups",    rebuild_matchups,    "rebuild_matchup_rows"),
+            ("synergies",   rebuild_synergies,   "rebuild_synergy_rows"),
+        ]:
+            try:
+                setattr(stats, attr, fn())
+            except Exception:
+                logger.warning("rebuild_%s failed", name, exc_info=True)
 
         logger.info(
             "Rebuild done: hero_stats=%s item_builds=%s matchups=%s synergies=%s",
-            stats.rebuild_hero_stats_rows,
-            stats.rebuild_item_build_rows,
-            stats.rebuild_matchup_rows,
-            stats.rebuild_synergy_rows,
+            stats.rebuild_hero_stats_rows, stats.rebuild_item_build_rows,
+            stats.rebuild_matchup_rows, stats.rebuild_synergy_rows,
         )
 
     def run_cycle(self) -> CycleStats:
-        """Виконує один цикл discovery + ingest + (optional) rebuild."""
         stats = CycleStats()
-
         discovered = self._discovery.discover(self._build_filter())
         stats.discovered = len(discovered)
 
         for dm in discovered:
             match_id = dm.match_id
-
             if self._is_known(match_id):
                 stats.skipped += 1
-                logger.debug("Skipping known match_id=%s", match_id)
                 continue
-
             try:
                 ingest_match(match_id=match_id, provider=self._match_provider)
                 self._mark_ok(match_id)
@@ -159,38 +122,28 @@ class Runner:
                 stats.errors.append((match_id, error_msg))
                 logger.error("Ingest failed match_id=%s error=%s", match_id, error_msg)
 
-        logger.info(
-            "Cycle done: discovered=%s skipped=%s ingested=%s failed=%s",
-            stats.discovered, stats.skipped, stats.ingested, stats.failed,
-        )
-
+        logger.info("Cycle done: discovered=%s skipped=%s ingested=%s failed=%s",
+                    stats.discovered, stats.skipped, stats.ingested, stats.failed)
         self._run_rebuild(stats)
-
         app_state.last_cycle_at = int(time.time())
         app_state.last_cycle_stats = asdict(stats)
-
         return stats
 
     def start(self) -> None:
-        """Запускає нескінченний цикл з паузою між ітераціями."""
         self._running = True
         self._setup_signal_handlers()
         logger.info("Runner started, interval=%ss", self._interval)
-
         while self._running:
             try:
                 self.run_cycle()
             except Exception:
                 logger.exception("Unexpected error in run_cycle, continuing")
-
             if self._running:
-                logger.info("Sleeping %ss until next cycle", self._interval)
                 self._interruptible_sleep(self._interval)
-
         logger.info("Runner stopped")
 
     def stop(self) -> None:
-        logger.info("Stop requested, finishing current cycle...")
+        logger.info("Stop requested")
         self._running = False
 
     def _setup_signal_handlers(self) -> None:
@@ -198,7 +151,7 @@ class Runner:
         signal.signal(signal.SIGTERM, self._handle_signal)
 
     def _handle_signal(self, signum: int, frame: object) -> None:
-        logger.info("Received signal %s, stopping after current cycle", signum)
+        logger.info("Received signal %s, stopping", signum)
         self.stop()
 
     def _interruptible_sleep(self, seconds: int) -> None:

@@ -9,14 +9,16 @@ class Settings(BaseSettings):
     OPENDOTA_TIMEOUT: int = 30
     OPENDOTA_RETRIES: int = 3
 
-    # Match Discovery filters (Task 2.1)
+    # Match Discovery filters
     DISCOVERY_LOBBY_TYPE: int = 7
-    DISCOVERY_MIN_MMR: int = 3000
+    # Epic 7.1: avg_mmr видалено з OpenDota public_matches.
+    # Замінено на avg_rank_tier: 60=Ancient+, 70=Divine+, 80=Immortal+
+    DISCOVERY_MIN_RANK_TIER: int = 60
     DISCOVERY_LIMIT: int = 100
     DISCOVERY_PATCH: int | None = None
     DISCOVERY_REGION: int | None = None
 
-    # Runner (Task 2.2)
+    # Runner
     DISCOVERY_INTERVAL_SEC: int = 300
 
     # Database
@@ -29,7 +31,6 @@ class Settings(BaseSettings):
     AUTO_REBUILD_AFTER_INGEST: bool = True
 
     # Epic 6.6 — CORS (Frontend dev server)
-    # Список origins через кому: "http://localhost:5173,http://localhost:3000"
     CORS_ORIGINS: str = "http://localhost:5173"
 
     model_config = SettingsConfigDict(

@@ -1,4 +1,3 @@
-# services/ingestion/db/repositories/matches.py
 """Репозиторії для матчів і логу інгестації."""
 import sqlite3
 
@@ -44,23 +43,46 @@ class MatchPlayerRepository:
             INSERT INTO match_players
                 (match_id, player_slot, player_id, hero_id,
                  kills, deaths, assists, gpm, xpm, win,
-                 lane_role, is_roaming)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 lane_role, is_roaming,
+                 net_worth, hero_damage, tower_damage,
+                 hero_healing, last_hits)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(match_id, player_slot) DO UPDATE SET
-                player_id  = excluded.player_id,
-                hero_id    = excluded.hero_id,
-                kills      = excluded.kills,
-                deaths     = excluded.deaths,
-                assists    = excluded.assists,
-                gpm        = excluded.gpm,
-                xpm        = excluded.xpm,
-                win        = excluded.win,
-                lane_role  = excluded.lane_role,
-                is_roaming = excluded.is_roaming
+                player_id      = excluded.player_id,
+                hero_id        = excluded.hero_id,
+                kills          = excluded.kills,
+                deaths         = excluded.deaths,
+                assists        = excluded.assists,
+                gpm            = excluded.gpm,
+                xpm            = excluded.xpm,
+                win            = excluded.win,
+                lane_role      = excluded.lane_role,
+                is_roaming     = excluded.is_roaming,
+                net_worth      = excluded.net_worth,
+                hero_damage    = excluded.hero_damage,
+                tower_damage   = excluded.tower_damage,
+                hero_healing   = excluded.hero_healing,
+                last_hits      = excluded.last_hits
             """,
-            (mp.match_id, mp.player_slot, mp.player_id, mp.hero_id,
-             mp.kills, mp.deaths, mp.assists, mp.gpm, mp.xpm, mp.win,
-             mp.lane_role, int(mp.is_roaming)),
+            (
+                mp.match_id,
+                mp.player_slot,
+                mp.player_id,
+                mp.hero_id,
+                mp.kills,
+                mp.deaths,
+                mp.assists,
+                mp.gpm,
+                mp.xpm,
+                mp.win,
+                mp.lane_role,
+                int(mp.is_roaming),
+                mp.net_worth,
+                mp.hero_damage,
+                mp.tower_damage,
+                mp.hero_healing,
+                mp.last_hits,
+            ),
         )
 
 

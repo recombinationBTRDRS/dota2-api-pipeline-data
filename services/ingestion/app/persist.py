@@ -16,7 +16,6 @@ def persist_match(match: Match) -> None:
 
     Зберігає match + players + match_players + match_player_items в одній транзакції.
     item_id=0 (порожній слот) не зберігається — фільтрується тут.
-    Всі items з усіх гравців зберігаються одним batch upsert в кінці.
     """
     with UnitOfWork() as uow:
         match_repo = MatchRepository(uow.conn)
@@ -30,8 +29,8 @@ def persist_match(match: Match) -> None:
                 start_time=match.start_time,
                 duration=match.duration,
                 radiant_win=match.radiant_win,
-                patch=match.patch,    # BL1.1: тепер з DTO
-                region=match.region,  # BL1.1: тепер з DTO
+                patch=match.patch,
+                region=match.region,
             )
         )
 
@@ -59,8 +58,14 @@ def persist_match(match: Match) -> None:
                     xpm=p.xpm,
                     win=p.win,
                     player_slot=p.player_slot,
-                    lane_role=p.lane_role,      # BL1.2: реальна позиція
-                    is_roaming=p.is_roaming,    # BL1.2: pos4 vs pos5
+                    lane_role=p.lane_role,
+                    is_roaming=p.is_roaming,
+                    # Task 7.6
+                    net_worth=p.net_worth,
+                    hero_damage=p.hero_damage,
+                    tower_damage=p.tower_damage,
+                    hero_healing=p.hero_healing,
+                    last_hits=p.last_hits,
                 )
             )
 

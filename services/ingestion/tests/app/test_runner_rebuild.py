@@ -42,7 +42,7 @@ def test_rebuild_called_after_ingest(
     """AUTO_REBUILD_AFTER_INGEST=True + нові матчі → _run_rebuild викликається."""
     mock_settings.AUTO_REBUILD_AFTER_INGEST = True
     mock_settings.DISCOVERY_LOBBY_TYPE = 7
-    mock_settings.DISCOVERY_MIN_MMR = 3000
+    mock_settings.DISCOVERY_MIN_RANK_TIER = 60
     mock_settings.DISCOVERY_LIMIT = 100
     mock_settings.DISCOVERY_PATCH = None
     mock_settings.DISCOVERY_REGION = None
@@ -70,7 +70,7 @@ def test_rebuild_not_called_when_no_new_matches(
     """Всі матчі known (ingested=0) → rebuild не запускається."""
     mock_settings.AUTO_REBUILD_AFTER_INGEST = True
     mock_settings.DISCOVERY_LOBBY_TYPE = 7
-    mock_settings.DISCOVERY_MIN_MMR = 3000
+    mock_settings.DISCOVERY_MIN_RANK_TIER = 60
     mock_settings.DISCOVERY_LIMIT = 100
     mock_settings.DISCOVERY_PATCH = None
     mock_settings.DISCOVERY_REGION = None
@@ -99,7 +99,7 @@ def test_rebuild_not_called_when_disabled(
     """AUTO_REBUILD_AFTER_INGEST=False → rebuild не запускається навіть при нових матчах."""
     mock_settings.AUTO_REBUILD_AFTER_INGEST = False
     mock_settings.DISCOVERY_LOBBY_TYPE = 7
-    mock_settings.DISCOVERY_MIN_MMR = 3000
+    mock_settings.DISCOVERY_MIN_RANK_TIER = 60
     mock_settings.DISCOVERY_LIMIT = 100
     mock_settings.DISCOVERY_PATCH = None
     mock_settings.DISCOVERY_REGION = None
@@ -128,7 +128,7 @@ def test_rebuild_failure_does_not_raise(
     """Помилка в _run_rebuild не пробивається назовні — runner не падає."""
     mock_settings.AUTO_REBUILD_AFTER_INGEST = True
     mock_settings.DISCOVERY_LOBBY_TYPE = 7
-    mock_settings.DISCOVERY_MIN_MMR = 3000
+    mock_settings.DISCOVERY_MIN_RANK_TIER = 60
     mock_settings.DISCOVERY_LIMIT = 100
     mock_settings.DISCOVERY_PATCH = None
     mock_settings.DISCOVERY_REGION = None
@@ -163,7 +163,7 @@ def test_cycle_stats_include_rebuild_counts(
     """CycleStats.rebuild_hero_stats_rows і rebuild_item_build_rows заповнені після rebuild."""
     mock_settings.AUTO_REBUILD_AFTER_INGEST = True
     mock_settings.DISCOVERY_LOBBY_TYPE = 7
-    mock_settings.DISCOVERY_MIN_MMR = 3000
+    mock_settings.DISCOVERY_MIN_RANK_TIER = 60
     mock_settings.DISCOVERY_LIMIT = 100
     mock_settings.DISCOVERY_PATCH = None
     mock_settings.DISCOVERY_REGION = None

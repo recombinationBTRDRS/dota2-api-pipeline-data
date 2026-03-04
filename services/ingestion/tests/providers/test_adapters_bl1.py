@@ -18,6 +18,7 @@ def _base_player(**kwargs) -> dict:
     base = {
         "hero_id": 1, "kills": 5, "deaths": 2, "assists": 8,
         "gold_per_min": 500, "xp_per_min": 600,
+        "player_slot": 0,   # radiant slot — тепер обов'язковий
         "isRadiant": True, "win": 1,
     }
     base.update(kwargs)
@@ -50,87 +51,129 @@ def test_adapt_match_dire_score_none_becomes_zero() -> None:
     assert adapt_match(raw)["dire_score"] == 0
 
 
+# ── player_slot і is_radiant (Task 7.3 fix) ──────────────────────────────────
+
+def test_adapt_player_radiant_slot_preserved() -> None:
+    """Radiant player_slot (0-4) зберігається як є."""
+    result = adapt_player(_base_player(player_slot=2))
+    assert result["player_slot"] == 2
+    assert result["is_radiant"] is True
+
+
+def test_adapt_player_dire_slot_preserved() -> None:
+    """Dire player_slot (128-132) зберігається як є і is_radiant=False."""
+    result = adapt_player(_base_player(player_slot=130))
+    assert result["player_slot"] == 130
+    assert result["is_radiant"] is False
+
+
+def test_adapt_player_slot_128_is_dire() -> None:
+    """player_slot=128 — перший dire гравець."""
+    result = adapt_player(_base_player(player_slot=128))
+    assert result["is_radiant"] is False
+
+
+def test_adapt_player_slot_missing_fallback_radiant() -> None:
+    """Відсутній player_slot + isRadiant=True → fallback slot=0."""
+    p = _base_player()
+    del p["player_slot"]
+    p["isRadiant"] = True
+    result = adapt_player(p)
+    assert result["player_slot"] == 0
+    assert result["is_radiant"] is True
+
+
+def test_adapt_player_slot_missing_fallback_dire() -> None:
+    """Відсутній player_slot + isRadiant=False → fallback slot=128."""
+    p = _base_player()
+    del p["player_slot"]
+    p["isRadiant"] = False
+    result = adapt_player(p)
+    assert result["player_slot"] == 128
+    assert result["is_radiant"] is False
+
+
 # ── account_id ────────────────────────────────────────────────────────────────
 
 def test_adapt_player_anonymous_sentinel_becomes_none() -> None:
-    assert adapt_player(_base_player(account_id=_ANON), slot_index=0)["account_id"] is None
+    assert adapt_player(_base_player(account_id=_ANON))["account_id"] is None
 
 
 def test_adapt_player_none_account_id_stays_none() -> None:
-    assert adapt_player(_base_player(account_id=None), slot_index=0)["account_id"] is None
+    assert adapt_player(_base_player(account_id=None))["account_id"] is None
 
 
 def test_adapt_player_real_account_id_preserved() -> None:
-    assert adapt_player(_base_player(account_id=123456789), slot_index=0)["account_id"] == 123456789
+    assert adapt_player(_base_player(account_id=123456789))["account_id"] == 123456789
 
 
 # ── gpm / xpm ─────────────────────────────────────────────────────────────────
 
 def test_adapt_player_gpm_from_gold_per_min() -> None:
-    assert adapt_player(_base_player(gold_per_min=450), slot_index=0)["gpm"] == 450
+    assert adapt_player(_base_player(gold_per_min=450))["gpm"] == 450
 
 
 def test_adapt_player_xpm_from_xp_per_min() -> None:
-    assert adapt_player(_base_player(xp_per_min=550), slot_index=0)["xpm"] == 550
+    assert adapt_player(_base_player(xp_per_min=550))["xpm"] == 550
 
 
 def test_adapt_player_gpm_missing_becomes_zero() -> None:
     p = _base_player()
     del p["gold_per_min"]
-    assert adapt_player(p, slot_index=0)["gpm"] == 0
+    assert adapt_player(p)["gpm"] == 0
 
 
 def test_adapt_player_xpm_missing_becomes_zero() -> None:
     p = _base_player()
     del p["xp_per_min"]
-    assert adapt_player(p, slot_index=0)["xpm"] == 0
+    assert adapt_player(p)["xpm"] == 0
 
 
 # ── lane_role і is_roaming ────────────────────────────────────────────────────
 
 def test_adapt_player_lane_role_present() -> None:
-    assert adapt_player(_base_player(lane_role=1), slot_index=0)["lane_role"] == 1
+    assert adapt_player(_base_player(lane_role=1))["lane_role"] == 1
 
 
 def test_adapt_player_lane_role_missing_is_none() -> None:
-    assert adapt_player(_base_player(), slot_index=0)["lane_role"] is None
+    assert adapt_player(_base_player())["lane_role"] is None
 
 
 def test_adapt_player_lane_role_zero_becomes_none() -> None:
     """lane_role=0 — OpenDota 'Unknown' lane — нормалізуємо до None."""
-    assert adapt_player(_base_player(lane_role=0), slot_index=0)["lane_role"] is None
+    assert adapt_player(_base_player(lane_role=0))["lane_role"] is None
 
 
 def test_adapt_player_lane_role_valid_values() -> None:
     for lane in range(1, 5):
-        assert adapt_player(_base_player(lane_role=lane), slot_index=0)["lane_role"] == lane
+        assert adapt_player(_base_player(lane_role=lane))["lane_role"] == lane
 
 
 def test_adapt_player_is_roaming_true() -> None:
-    assert adapt_player(_base_player(is_roaming=True), slot_index=0)["is_roaming"] is True
+    assert adapt_player(_base_player(is_roaming=True))["is_roaming"] is True
 
 
 def test_adapt_player_is_roaming_missing_is_false() -> None:
-    assert adapt_player(_base_player(), slot_index=0)["is_roaming"] is False
+    assert adapt_player(_base_player())["is_roaming"] is False
 
 
 def test_adapt_player_is_roaming_none_is_false() -> None:
-    assert adapt_player(_base_player(is_roaming=None), slot_index=0)["is_roaming"] is False
+    assert adapt_player(_base_player(is_roaming=None))["is_roaming"] is False
 
 
 # ── items ─────────────────────────────────────────────────────────────────────
 
 def test_adapt_player_items_extracted() -> None:
     p = _base_player(item_0=1, item_1=2, item_2=3, item_3=4, item_4=5, item_5=6)
-    assert adapt_player(p, slot_index=0)["items"] == [1, 2, 3, 4, 5, 6]
+    assert adapt_player(p)["items"] == [1, 2, 3, 4, 5, 6]
 
 
 def test_adapt_player_missing_items_become_zero() -> None:
-    assert adapt_player(_base_player(), slot_index=0)["items"] == [0, 0, 0, 0, 0, 0]
+    assert adapt_player(_base_player())["items"] == [0, 0, 0, 0, 0, 0]
 
 
 def test_adapt_player_none_item_becomes_zero() -> None:
     p = _base_player(item_0=None, item_1=100)
-    result = adapt_player(p, slot_index=0)
+    result = adapt_player(p)
     assert result["items"][0] == 0
     assert result["items"][1] == 100

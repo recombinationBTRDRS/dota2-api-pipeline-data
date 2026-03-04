@@ -68,7 +68,6 @@ def test_discover_retries_on_429(mock_get: MagicMock) -> None:
     ]
 
     client = OpenDotaExplorerClient()
-    # Патчимо sleep щоб тест не чекав
     with patch("services.ingestion.providers.opendota.explorer_client.time.sleep"):
         result = client.discover(DiscoveryFilter())
 
@@ -121,10 +120,10 @@ def test_sql_passed_as_query_param(mock_get: MagicMock) -> None:
     mock_get.return_value = make_response(200, VALID_ROWS)
 
     client = OpenDotaExplorerClient()
-    f = DiscoveryFilter(min_mmr=4000, patch=138)
+    f = DiscoveryFilter(min_rank_tier=70, patch=138)
     client.discover(f)
 
     _, kwargs = mock_get.call_args
     sql_param = kwargs["params"]["sql"]
-    assert "avg_mmr >= 4000" in sql_param
-    assert "patch = 138" in sql_param
+    assert "avg_rank_tier >= 70" in sql_param
+    # patch ignored — column removed from public_matches (2026-03)

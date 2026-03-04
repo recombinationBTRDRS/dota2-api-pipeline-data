@@ -1,5 +1,5 @@
 # Dota 2 Analytics Pipeline — Roadmap
-> Останнє оновлення: після Epic 5 + R1 Done.
+> Останнє оновлення: Epic 7 In Progress (Data Scale).
 
 ## Легенда статусів
 ✅ Done | 🔜 Next | 🔄 In Progress | ⏳ Backlog
@@ -104,45 +104,129 @@ Backend повністю готовий. Frontend читає з `/computed` endp
 | 6.6 | CORS config на backend | ⏳ |
 | 6.7 | Counter Picks / Synergy page | ⏳ |
 
----
-
-## 🧠 Epic 7 — Recommendation Engine ⏳
-| Task | Опис | Статус |
-|------|------|--------|
-| 7.1 | Rule-based recommendations (по pre-computed stats) | ⏳ |
-| 7.2 | Counter picks з hero_matchup_computed | ⏳ |
-| 7.3 | Synergy picks з hero_synergy_computed | ⏳ |
-| 7.4 | Draft analyzer: heroes picked → оцінка + рекомендації | ⏳ |
 
 ---
 
-## 🚀 Epic 8 — Public API & Scale ⏳
+## ✅ Epic 1 — Ingestion Service MVP
+## ✅ Epic 2 — Match Discovery Service
+## ✅ Epic 3 — Domain Model (Heroes, Items, Roles)
+## ✅ Epic 4 — Analytics Engine
+## ✅ Epic R1 — Project Health, Refactor & Audit
+## ✅ Epic 5 — Pre-computed Data Layer
+## ✅ Epic 6 — Frontend (React + Vite + TypeScript)
+
+> Деталі епіків 1-6 збережені в git history. Нижче — активні та майбутні епіки.
+
+---
+
+## 🔄 Epic 7 — Data Scale & Quality
+
+> Мета: 500+ матчів, реальні matchup/synergy дані, фікс відомих багів інгесту.
+> Branch: `feat/epic-7-data-scale`
+
 | Task | Опис | Статус |
 |------|------|--------|
-| 8.1 | Pagination і filters для всіх list endpoints | ⏳ |
-| 8.2 | Response caching (in-memory / Redis) | ⏳ |
-| 8.3 | Rate limiting для публічних endpoints | ⏳ |
-| 8.4 | PostgreSQL migration (Alembic) | ⏳ |
-| 8.5 | Docker Compose: app + db + worker | ⏳ |
-| 8.6 | Monitoring: structured logs, Prometheus | ⏳ |
+| 7.1 | Фікс Runner: `avg_mmr` → `avg_rank_tier` в Explorer query | ✅ |
+| 7.2 | Scripts: `batch_ingest.py` і `discover_and_ingest.py` + `scripts/README.md` | ✅ |
+| 7.3 | Дослідити `player_slot` issue — чому matchup_rows=0 | 🔜 |
+| 7.4 | Додати `lane_role` + `is_roaming` в `match_players` (adapter + schema) | ⏳ |
+| 7.5 | Фікс `rebuild_synergies` FK через FastAPI (UnitOfWork isolation) | ⏳ |
+| 7.6 | Додати `net_worth`, `hero_damage`, `last_hits` в `match_players` | ⏳ |
+| 7.7 | Backpack items (slots 6-8) + neutral slot | ⏳ |
+| 7.8 | Smoke test: перевірити matchups і synergies з реальними даними | ⏳ |
+| 7.9 | Тести для batch_ingest і нових полів | ⏳ |
+
+**Acceptance criteria:**
+- Runner знаходить матчі автоматично (avg_rank_tier працює)
+- 500+ матчів в БД
+- matchup_rows > 0 після rebuild
+- `lane_role` не NULL для більшості гравців
+
+---
+
+## ⏳ Epic 8 — Match Analysis Service
+
+> Новий сервіс `services/analysis/`. Watchlist матчів + аналіз якості драфту і гри.
+
+| Task | Опис | Пріоритет |
+|------|------|-----------|
+| 8.1 | Bootstrap: `services/analysis/` — FastAPI + SQLite + структура | 🔴 |
+| 8.2 | Watchlist API: `POST /watchlist/matches`, `GET /watchlist/matches` | 🔴 |
+| 8.3 | Auto-fetch: при додаванні в watchlist — фетчити деталі з OpenDota | 🔴 |
+| 8.4 | Match Report: `GET /watchlist/matches/{id}/report` | 🔴 |
+| 8.5 | Draft quality score: synergy + counter balance | 🟠 |
+| 8.6 | Economy analysis: GPM curves, net_worth | 🟠 |
+| 8.7 | Teamfight efficiency: kills/deaths по фазах | 🟡 |
+| 8.8 | Frontend: Watch List сторінка + Match Report | 🟠 |
+| 8.9 | Тести: watchlist CRUD, report generation | 🔴 |
+
+---
+
+## ⏳ Epic 9 — Draft Assistant
+
+> Rule-based рекомендації на основі matchup/synergy даних.
+
+| Task | Опис | Пріоритет |
+|------|------|-----------|
+| 9.1 | Draft session API: `POST /draft/session`, `PATCH /draft/session/{id}` | 🔴 |
+| 9.2 | Recommendation engine: score = synergy + counter + winrate | 🔴 |
+| 9.3 | `GET /draft/session/{id}/recommendations` | 🔴 |
+| 9.4 | Position awareness: рекомендує з урахуванням незаповнених позицій | 🟠 |
+| 9.5 | Ban suggestions | 🟠 |
+| 9.6 | Frontend: Draft Board UI | 🔴 |
+| 9.7 | Тести: recommendation logic, edge cases | 🔴 |
+
+---
+
+## ⏳ Epic 10 — Team Builder
+
+> Оптимальний склад команди проти конкретного противника.
+
+| Task | Опис | Пріоритет |
+|------|------|-----------|
+| 10.1 | `POST /team-builder/optimize` → input: вороги, output: оптимальна команда | 🔴 |
+| 10.2 | Optimization: комбінаторний пошук з евристикою | 🔴 |
+| 10.3 | Score breakdown по кожному герою | 🟠 |
+| 10.4 | Frontend: Team Builder UI | 🟠 |
+| 10.5 | Тести: optimizer correctness, performance | 🔴 |
+
+---
+
+## ⏳ Epic 11 — Scale & Production
+
+| Task | Опис | Пріоритет |
+|------|------|-----------|
+| 11.1 | PostgreSQL migration (Alembic) | 🔴 |
+| 11.2 | Docker Compose: ingestion + analysis + frontend + postgres | 🔴 |
+| 11.3 | Pagination для всіх list endpoints | 🟠 |
+| 11.4 | Response caching (Redis або in-memory) | 🟠 |
+| 11.5 | Rate limiting для публічних endpoints | 🟠 |
+| 11.6 | Structured logging + Prometheus | 🟡 |
+| 11.7 | GitHub Actions: deploy pipeline | 🟡 |
 
 ---
 
 ## Послідовність
 
 ```
-✅1 → ✅2 → ✅3 → ✅4 → ✅R1 → ✅5 → 🔜6(Frontend) → 7(Recommendations) → 8(Scale)
+✅1→2→3→4→R1→5→6 → 🔄7 → ⏳8 → ⏳9 → ⏳10 → ⏳11
 ```
 
----
+## Версії
+
+```
+v1.1.0 — Epic 6 done (Frontend)
+v1.2.0 — Epic 7 done (Data Scale)      ← поточна мета
+v2.0.0 — Epic 9 done (Draft Assistant)
+v3.0.0 — Epic 11 done (Production)
+```
 
 ## Commit convention
 
 ```
-feat | fix | test | refactor | docs | chore
-feat(6.1): bootstrap React + Vite + TypeScript
-feat(5.9): matchup/synergy API endpoints
-docs(R1.2): update architecture snapshot
+feat(7.3): investigate player_slot radiant-only issue
+fix(7.5): rebuild_synergies FK isolation in FastAPI
+feat(8.1): bootstrap analysis service
 ```
 
 ## Issue naming

@@ -17,9 +17,12 @@ _MIGRATIONS = [
     "ALTER TABLE matches ADD COLUMN patch INTEGER",
     "ALTER TABLE matches ADD COLUMN region INTEGER",
     # BL1.2
-    "ALTER TABLE match_players ADD COLUMN lane_role INTEGER CHECK(lane_role IS NULL OR lane_role BETWEEN 1 AND 4)",
-    "ALTER TABLE match_players ADD COLUMN is_roaming BOOLEAN NOT NULL DEFAULT 0",
-    "CREATE INDEX IF NOT EXISTS idx_match_players_lane_role ON match_players (lane_role)",
+    # Epic 7.6 — performance fields у match_players
+    "ALTER TABLE match_players ADD COLUMN net_worth INTEGER",
+    "ALTER TABLE match_players ADD COLUMN hero_damage INTEGER",
+    "ALTER TABLE match_players ADD COLUMN tower_damage INTEGER",
+    "ALTER TABLE match_players ADD COLUMN hero_healing INTEGER",
+    "ALTER TABLE match_players ADD COLUMN last_hits INTEGER",
     # Epic 5.1 — hero_stats_computed (AUTOINCREMENT id + COALESCE UNIQUE index)
     """CREATE TABLE IF NOT EXISTS hero_stats_computed (
         id              INTEGER PRIMARY KEY AUTOINCREMENT,
