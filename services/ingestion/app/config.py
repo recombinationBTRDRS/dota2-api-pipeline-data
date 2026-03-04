@@ -26,14 +26,20 @@ class Settings(BaseSettings):
     LOG_LEVEL: str = "INFO"
 
     # Epic 5.6 — Pre-computed layer scheduler
-    # True  → rebuild hero_stats_computed + hero_item_build_computed після кожного циклу
-    # False → тільки manual trigger через POST /computed/rebuild
     AUTO_REBUILD_AFTER_INGEST: bool = True
+
+    # Epic 6.6 — CORS (Frontend dev server)
+    # Список origins через кому: "http://localhost:5173,http://localhost:3000"
+    CORS_ORIGINS: str = "http://localhost:5173"
 
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
     )
+
+    def cors_origins_list(self) -> list[str]:
+        """Повертає CORS_ORIGINS як список рядків."""
+        return [o.strip() for o in self.CORS_ORIGINS.split(",") if o.strip()]
 
 
 settings = Settings()
