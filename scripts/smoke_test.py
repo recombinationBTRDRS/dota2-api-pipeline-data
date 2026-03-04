@@ -143,8 +143,13 @@ def _run(TEST_DB: Path, sqlite_module: object) -> None:
         from services.ingestion.app.ingest_match import ingest_match
 
         for mid in (MATCH_ID, MATCH_ID2):
-            ingest_match(mid)
-            ok(f"Матч {mid} інгестовано")
+            try:
+                ingest_match(mid)
+                ok(f"Матч {mid} інгестовано")
+            except Exception as e:
+                fail(f"Матч {mid} не інгестовано: {e}")
+                traceback.print_exc()
+                failures.append(f"ingest failed match={mid}")
 
         with UnitOfWork() as uow:
             conn = uow.conn

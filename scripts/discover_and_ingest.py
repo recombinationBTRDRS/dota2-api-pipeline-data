@@ -80,15 +80,18 @@ def discover_matches(
     lobby_type: int,
 ) -> list[int]:
     """Discovery через OpenDota Explorer. Повертає список match_id."""
-    # Explorer повертає max 1000 рядків за раз — робимо кілька запитів якщо треба
-    all_ids: list[int] = []
-    batch_size = min(count, 500)  # Explorer ліміт
+    
+    if count > 500:
+        raise SystemExit(
+            "Explorer API supports max 500 rows per request. "
+            "Use --count <= 500."
+        )
 
     client = OpenDotaExplorerClient()
     f = DiscoveryFilter(
         lobby_type=lobby_type,
         min_rank_tier=rank_tier,
-        limit=batch_size,
+        limit=count,
         patch=patch,
         region=region,
     )
@@ -105,7 +108,7 @@ def discover_matches(
     all_ids = [m.match_id for m in discovered]
 
     logger.info("Discovered %d match_ids", len(all_ids))
-    return all_ids[:count]
+    return all_ids
 
 
 def save_to_csv(match_ids: list[int], path: Path) -> None:
@@ -191,6 +194,10 @@ def main() -> None:
 
     args = parser.parse_args()
 
+    if args.rate_limit < 0:
+        logger.warning("rate-limit < 0 is invalid. Using 0.")
+        args.rate_limit = 0
+        
     init_db()
 
     # Discovery
