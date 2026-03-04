@@ -126,4 +126,4 @@ def test_sql_passed_as_query_param(mock_get: MagicMock) -> None:
     _, kwargs = mock_get.call_args
     sql_param = kwargs["params"]["sql"]
     assert "avg_rank_tier >= 70" in sql_param
-    assert "patch = 138" in sql_param
+    # patch ignored — column removed from public_matches (2026-03)
