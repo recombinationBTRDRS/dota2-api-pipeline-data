@@ -10,26 +10,33 @@ import { getPositionLabel } from '../types/api'
 import WinrateBadge from '../components/WinrateBadge'
 import './HeroStatsPage.css'
 
+type SortKey = keyof HeroStatsResponse
+
 export default function HeroStatsPage() {
   const [heroes, setHeroes] = useState<HeroStatsResponse[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [pos, setPos] = useState<number | undefined>(undefined)
-  const [sortKey, setSortKey] = useState<keyof HeroStatsResponse>('winrate')
+  const [sortKey, setSortKey] = useState<SortKey>('winrate')
   const [sortAsc, setSortAsc] = useState(false)
   const navigate = useNavigate()
 
   useEffect(() => {
+    let active = true          // cleanup flag — запобігає race condition при швидкій зміні pos
+
     setLoading(true)
     setError(null)
+
     computedApi.getTopHeroes({ primary_pos: pos, min_matches: 1, limit: 100 })
-      .then(setHeroes)
-      .catch(e => setError(e instanceof Error ? e.message : String(e)))
-      .finally(() => setLoading(false))
+      .then(data => { if (active) setHeroes(data) })
+      .catch(e => { if (active) setError(e instanceof Error ? e.message : String(e)) })
+      .finally(() => { if (active) setLoading(false) })
+
+    return () => { active = false }
   }, [pos])
 
-  function handleSort(key: keyof HeroStatsResponse) {
-    if (sortKey === key) setSortAsc(!sortAsc)
+  function handleSort(key: SortKey) {
+    if (sortKey === key) setSortAsc(prev => !prev)
     else { setSortKey(key); setSortAsc(false) }
   }
 
@@ -40,10 +47,26 @@ export default function HeroStatsPage() {
     return sortAsc ? cmp : -cmp
   })
 
-  function SortIcon({ col }: { col: keyof HeroStatsResponse }) {
+  function ariaSortFor(col: SortKey): 'ascending' | 'descending' | 'none' {
+    if (sortKey !== col) return 'none'
+    return sortAsc ? 'ascending' : 'descending'
+  }
+
+  function SortIcon({ col }: { col: SortKey }) {
     if (sortKey !== col) return <span className="sort-icon">↕</span>
     return <span className="sort-icon active">{sortAsc ? '↑' : '↓'}</span>
   }
+
+  const cols: { label: string; key: SortKey }[] = [
+    { label: 'Hero',    key: 'hero_name' },
+    { label: 'Pos',     key: 'primary_pos' },
+    { label: 'Matches', key: 'matches_played' },
+    { label: 'Winrate', key: 'winrate' },
+    { label: 'K',       key: 'avg_kills' },
+    { label: 'D',       key: 'avg_deaths' },
+    { label: 'A',       key: 'avg_assists' },
+    { label: 'GPM',     key: 'avg_gpm' },
+  ]
 
   return (
     <div>
@@ -76,14 +99,21 @@ export default function HeroStatsPage() {
         <table className="hero-table">
           <thead>
             <tr>
-              <th onClick={() => handleSort('hero_name')}>Hero <SortIcon col="hero_name" /></th>
-              <th onClick={() => handleSort('primary_pos')}>Pos <SortIcon col="primary_pos" /></th>
-              <th onClick={() => handleSort('matches_played')}>Matches <SortIcon col="matches_played" /></th>
-              <th onClick={() => handleSort('winrate')}>Winrate <SortIcon col="winrate" /></th>
-              <th onClick={() => handleSort('avg_kills')}>K <SortIcon col="avg_kills" /></th>
-              <th onClick={() => handleSort('avg_deaths')}>D <SortIcon col="avg_deaths" /></th>
-              <th onClick={() => handleSort('avg_assists')}>A <SortIcon col="avg_assists" /></th>
-              <th onClick={() => handleSort('avg_gpm')}>GPM <SortIcon col="avg_gpm" /></th>
+              {cols.map(({ label, key }) => (
+                <th key={key} aria-sort={ariaSortFor(key)}>
+                  <button
+                    type="button"
+                    className="th-btn"
+                    onClick={() => handleSort(key)}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter' || e.key === ' ') handleSort(key)
+                    }}
+                    aria-label={`Sort by ${label}`}
+                  >
+                    {label} <SortIcon col={key} />
+                  </button>
+                </th>
+              ))}
             </tr>
           </thead>
           <tbody>
@@ -91,13 +121,16 @@ export default function HeroStatsPage() {
               <tr
                 key={`${h.hero_id}-${h.primary_pos}`}
                 className="clickable-row"
+                role="button"
+                tabIndex={0}
+                aria-label={`View ${h.hero_name ?? 'hero'} detail`}
                 onClick={() => navigate(`/heroes/${h.hero_id}/${h.primary_pos}`)}
                 onKeyDown={e => {
-                  if (e.key === 'Enter' || e.key === ' ') navigate(`/heroes/${h.hero_id}/${h.primary_pos}`)
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault()
+                    navigate(`/heroes/${h.hero_id}/${h.primary_pos}`)
+                  }
                 }}
-                tabIndex={0}
-                role="button"
-                aria-label={`View ${h.hero_name ?? 'hero'} detail`}
               >
                 <td className="hero-name">{h.hero_name ?? `Hero #${h.hero_id}`}</td>
                 <td>

@@ -49,3 +49,6 @@
 .pos-5 { background: #3a1f2a; color: #f778ba; }
 
 .clickable-row { cursor: pointer; }
+
+/* новий стиль для кнопок у заголовках таблиці */
+.th-btn { background: none; border: none; color: inherit; cursor: pointer; font: inherit; }

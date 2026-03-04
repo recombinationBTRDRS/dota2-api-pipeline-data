@@ -15,7 +15,6 @@ export async function apiFetch<T>(path: string, options?: RequestInit): Promise<
   try {
     res = await fetch(`${BASE}${path}`, options)
   } catch (err) {
-    // Network failure (no connection, DNS, CORS preflight)
     throw new ApiError(0, err instanceof Error ? err.message : 'Network error')
   }
 
@@ -24,12 +23,19 @@ export async function apiFetch<T>(path: string, options?: RequestInit): Promise<
     throw new ApiError(res.status, `${res.status} ${text}`)
   }
 
-  // 204 No Content або порожнє тіло — повертаємо undefined
-  const contentLength = res.headers.get('content-length')
-  const contentType = res.headers.get('content-type') ?? ''
-  if (res.status === 204 || contentLength === '0' || !contentType.includes('application/json')) {
+  // Читаємо тіло як текст — безпечно для будь-якого status/content-type
+  const body = await res.text()
+
+  // Порожнє тіло (204 або 200 з empty body без content-length)
+  if (!body.trim()) {
     return undefined as unknown as T
   }
 
-  return res.json() as Promise<T>
+  // Non-JSON content-type з непорожнім тілом — помилка, не маскуємо як успіх
+  const contentType = res.headers.get('content-type') ?? ''
+  if (!contentType.includes('application/json')) {
+    throw new ApiError(res.status, `Unexpected content-type: ${contentType}`)
+  }
+
+  return JSON.parse(body) as T
 }
