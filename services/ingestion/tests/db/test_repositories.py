@@ -20,14 +20,45 @@ def db(monkeypatch, tmp_path):
     return db_path
 
 
-def _make_mp(**kwargs) -> MatchPlayerDB:
-    """Фабрика MatchPlayerDB з дефолтами для нових полів Task 7.6."""
-    defaults = dict(
-        net_worth=None, hero_damage=None,
-        tower_damage=None, hero_healing=None, last_hits=None,
+def _make_mp(
+    *,
+    match_id: int,
+    player_id: int | None,
+    hero_id: int,
+    kills: int,
+    deaths: int,
+    assists: int,
+    gpm: int,
+    xpm: int,
+    win: bool,
+    player_slot: int,
+    lane_role: int | None,
+    is_roaming: bool,
+    net_worth: int | None = None,
+    hero_damage: int | None = None,
+    tower_damage: int | None = None,
+    hero_healing: int | None = None,
+    last_hits: int | None = None,
+) -> MatchPlayerDB:
+    return MatchPlayerDB(
+        match_id=match_id,
+        player_id=player_id,
+        hero_id=hero_id,
+        kills=kills,
+        deaths=deaths,
+        assists=assists,
+        gpm=gpm,
+        xpm=xpm,
+        win=win,
+        player_slot=player_slot,
+        lane_role=lane_role,
+        is_roaming=is_roaming,
+        net_worth=net_worth,
+        hero_damage=hero_damage,
+        tower_damage=tower_damage,
+        hero_healing=hero_healing,
+        last_hits=last_hits,
     )
-    defaults.update(kwargs)
-    return MatchPlayerDB(**defaults)
 
 
 def test_match_upsert_idempotent(db):
