@@ -138,7 +138,7 @@ def _run(TEST_DB: Path, sqlite_module: object) -> None:
         failures.append(f"sync_role_scores crashed: {e}")
 
     # ── 4. ingest_match ───────────────────────────────────────────────────────
-    section(f"4. ingest_match (2 матчі)")
+    section("4. ingest_match (2 матчі)")
     try:
         from services.ingestion.app.ingest_match import ingest_match
 
@@ -176,7 +176,7 @@ def _run(TEST_DB: Path, sqlite_module: object) -> None:
                     "SELECT COUNT(*) FROM match_players WHERE match_id = ?", (mid,)
                 ).fetchone()[0]
                 if mp_count == 10:
-                    ok(f"  match_players: 10/10 ✓")
+                    ok("  match_players: 10/10 ✓")
                 else:
                     fail(f"  match_players: {mp_count} (очікувалось 10)")
                     failures.append(f"match_players count={mp_count} match={mid}")
@@ -214,7 +214,7 @@ def _run(TEST_DB: Path, sqlite_module: object) -> None:
             ).fetchall()
             lane_nulls = sum(1 for p in players if p["lane_role"] is None)
             if lane_nulls == 0:
-                ok(f"lane_role заповнений для всіх гравців ✓")
+                ok("lane_role заповнений для всіх гравців ✓")
             else:
                 warn(f"lane_role NULL для {lane_nulls}/10 — матч не парсений (OK)")
 
@@ -273,8 +273,10 @@ def _run(TEST_DB: Path, sqlite_module: object) -> None:
             conn = uow.conn
 
             from services.ingestion.db.repositories.analytics.hero_stats import HeroStatsRepository
-            from services.ingestion.db.repositories.analytics.timeline import MatchTimelineRepository
             from services.ingestion.db.repositories.analytics.matchup import MatchupRepository
+            from services.ingestion.db.repositories.analytics.timeline import (
+                MatchTimelineRepository,
+            )
 
             hero_row = conn.execute(
                 "SELECT mp.hero_id, h.localized_name FROM match_players mp "
