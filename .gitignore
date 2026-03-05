@@ -44,3 +44,6 @@ matches.csv
 
 # Ignore all CSV files
 *.csv
+
+# Zip
+*.zip
