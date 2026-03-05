@@ -30,6 +30,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+import requests
+from requests.exceptions import RequestException
+
 from services.ingestion.app.ingest_match import ingest_match
 from services.ingestion.app.rebuild_all import rebuild_all_computed
 from services.ingestion.db.repositories import IngestionLogRepository
@@ -37,9 +40,6 @@ from services.ingestion.db.sqlite import init_db
 from services.ingestion.db.unit_of_work import UnitOfWork
 from services.ingestion.domains.discovery.dtos import DiscoveryFilter
 from services.ingestion.providers.opendota.explorer_client import OpenDotaExplorerClient
-
-import requests
-from requests.exceptions import RequestException
 
 logging.basicConfig(
     level=logging.INFO,
