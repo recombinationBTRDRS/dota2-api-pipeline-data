@@ -2,29 +2,24 @@
 # scripts/discover_and_ingest.py
 """Розширений discovery + ingest з гнучкими фільтрами.
 
-Дозволяє знаходити матчі за конкретними параметрами (MMR, регіон, патч, дата)
-і одразу інгестувати їх. Корисний для збору даних за конкретний період або мету.
-
 Використання:
-    # Знайти і інгестувати 200 матчів Divine+ з EU West
-    python scripts/discover_and_ingest.py --count 200 --rank-tier 70 --region 3
+    # Матчі за останній тиждень, Divine+
+    python scripts/discover_and_ingest.py --count 200 --rank-tier 70 --days 7
 
-    # Матчі за конкретний патч, dry-run спочатку
-    python scripts/discover_and_ingest.py --count 100 --patch 59 --dry-run
+    # Матчі перед конкретним матчем (хронологічно)
+    python scripts/discover_and_ingest.py --count 200 --before-match 8714955447
 
-    # Тільки discovery — зберегти match_id в CSV без інгесту
-    python scripts/discover_and_ingest.py --count 500 --save-csv found_matches.csv --no-ingest
+    # Immortal (Titan) матчі за останні 3 дні
+    python scripts/discover_and_ingest.py --count 500 --rank-tier 80 --days 3 --rebuild
 
-    # Повний pipeline: знайти → інгестувати → rebuild
-    python scripts/discover_and_ingest.py --count 100 --rank-tier 60 --rebuild
-
-Регіони OpenDota:
-    1=US West, 2=US East, 3=Europe, 4=SE Asia, 5=China, 6=Dubai, 7=Australia,
-    8=Stockholm, 9=Vienna, 10=Peru, 11=India, 12=South Africa, 13=China (Telecom)
+    # Тільки discovery — зберегти в CSV
+    python scripts/discover_and_ingest.py --count 500 --save-csv found.csv --no-ingest
 
 Rank Tier:
     10=Herald, 20=Guardian, 30=Crusader, 40=Archon,
-    50=Legend, 60=Ancient, 70=Divine, 80=Immortal
+    50=Legend, 60=Ancient, 70=Divine, 75=Divine/Immortal (Titan), 80=Immortal
+
+Примітка: OpenDota Explorer не підтримує фільтри по region/patch (видалені з public_matches).
 """
 import argparse
 import csv
@@ -43,6 +38,9 @@ from services.ingestion.db.unit_of_work import UnitOfWork
 from services.ingestion.domains.discovery.dtos import DiscoveryFilter
 from services.ingestion.providers.opendota.explorer_client import OpenDotaExplorerClient
 
+import requests
+from requests.exceptions import RequestException
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(message)s",
@@ -50,21 +48,17 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-REGION_NAMES = {
-    1: "US West", 2: "US East", 3: "Europe", 4: "SE Asia",
-    5: "China", 6: "Dubai", 7: "Australia", 8: "Stockholm",
-    9: "Vienna", 10: "Peru", 11: "India", 12: "South Africa",
-}
-
 RANK_NAMES = {
     10: "Herald", 20: "Guardian", 30: "Crusader", 40: "Archon",
-    50: "Legend", 60: "Ancient", 70: "Divine", 80: "Immortal",
+    50: "Legend", 60: "Ancient", 70: "Divine", 75: "Divine/Immortal", 80: "Immortal",
 }
+
+MAX_EXPLORER_LIMIT = 200  # batch size для Explorer API
 
 
 def get_rank_label(tier: int) -> str:
     base = (tier // 10) * 10
-    return RANK_NAMES.get(base, f"Tier {tier}")
+    return RANK_NAMES.get(tier) or RANK_NAMES.get(base, f"Tier {tier}")
 
 
 def is_known(match_id: int) -> bool:
@@ -72,43 +66,100 @@ def is_known(match_id: int) -> bool:
         return IngestionLogRepository(uow.conn).is_known(match_id)
 
 
+def _get_match_start_time(match_id: int) -> int | None:
+    """Отримує start_time матчу з OpenDota API для --before-match фільтра."""
+    try:
+        url = f"https://api.opendota.com/api/matches/{match_id}"
+        resp = requests.get(url, timeout=10)
+        resp.raise_for_status()
+        return resp.json().get("start_time")
+    except Exception as e:
+        logger.warning("Не вдалося отримати start_time для матчу %d: %s", match_id, e)
+        return None
+
+
+def fetch_with_retry(url: str, params: dict, retries: int = 3, delay: float = 2.0):
+    for attempt in range(1, retries + 1):
+        try:
+            resp = requests.get(url, params=params, timeout=30)
+            resp.raise_for_status()
+            return resp.json()
+        except RequestException as e:
+            logger.warning("Attempt %d failed: %s", attempt, e)
+            if attempt < retries:
+                time.sleep(delay)
+            else:
+                raise
+
+
 def discover_matches(
     count: int,
     rank_tier: int,
-    region: int | None,
-    patch: int | None,
     lobby_type: int,
+    start_time_after: int | None = None,
+    start_time_before: int | None = None,
 ) -> list[int]:
-    """Discovery через OpenDota Explorer. Повертає список match_id."""
-    
-    if count > 500:
-        raise SystemExit(
-            "Explorer API supports max 500 rows per request. "
-            "Use --count <= 500."
+    """Discovery через OpenDota Explorer з batch та retry. Повертає список match_id."""
+    client = OpenDotaExplorerClient()
+    match_ids: list[int] = []
+    remaining = count
+
+    while remaining > 0:
+        batch_limit = min(remaining, MAX_EXPLORER_LIMIT)
+        f = DiscoveryFilter(
+            lobby_type=lobby_type,
+            min_rank_tier=rank_tier,
+            limit=batch_limit,
         )
 
-    client = OpenDotaExplorerClient()
-    f = DiscoveryFilter(
-        lobby_type=lobby_type,
-        min_rank_tier=rank_tier,
-        limit=count,
-        patch=patch,
-        region=region,
-    )
+        # time-фільтри через SQL, якщо задані
+        if start_time_after or start_time_before:
+            from services.ingestion.domains.discovery.query_builder import build_explorer_sql
+            base_sql = build_explorer_sql(f)
+            extra_conditions = []
+            if start_time_after:
+                extra_conditions.append(f"start_time >= {start_time_after}")
+            if start_time_before:
+                extra_conditions.append(f"start_time <= {start_time_before}")
+            conditions_str = " AND ".join(extra_conditions)
+            if "WHERE" in base_sql:
+                sql = base_sql.replace("ORDER BY", f"AND {conditions_str} ORDER BY")
+            else:
+                sql = base_sql.replace("ORDER BY", f"WHERE {conditions_str} ORDER BY")
+
+            url = "https://api.opendota.com/api/explorer"
+            logger.info("Explorer SQL (batch %d): %s", batch_limit, sql)
+            data = fetch_with_retry(url, {"sql": sql})
+            rows = data.get("rows", [])
+            batch_ids = [r["match_id"] for r in rows if "match_id" in r]
+        else:
+            logger.info(
+                "Discovering batch %d | rank=%s",
+                batch_limit, get_rank_label(rank_tier)
+            )
+            discovered = client.discover(f)
+            batch_ids = [m.match_id for m in discovered]
+
+        if not batch_ids:
+            logger.info("No more matches returned by Explorer, stopping batch discovery.")
+            break
+
+        match_ids.extend(batch_ids)
+        remaining -= len(batch_ids)
+        logger.info("Batch added %d matches, remaining=%d", len(batch_ids), remaining)
+
+        # Невелика пауза між batch
+        if remaining > 0:
+            time.sleep(1.0)
 
     logger.info(
-        "Discovering: count=%d rank=%s region=%s patch=%s",
-        count,
+        "Total discovered %d match_ids | rank=%s | time_filter=%s",
+        len(match_ids),
         get_rank_label(rank_tier),
-        REGION_NAMES.get(region, region) if region else "All",
-        patch or "latest",
+        f"after={start_time_after} before={start_time_before}" if (start_time_after or start_time_before) else "none",
     )
 
-    discovered = client.discover(f)
-    all_ids = [m.match_id for m in discovered]
-
-    logger.info("Discovered %d match_ids", len(all_ids))
-    return all_ids
+    return match_ids[:count]
 
 
 def save_to_csv(match_ids: list[int], path: Path) -> None:
@@ -166,63 +217,69 @@ def main() -> None:
         epilog=__doc__,
     )
 
-    # Discovery параметри
     parser.add_argument("--count", type=int, default=100,
-                        help="Кількість матчів для знаходження (default: 100)")
-    parser.add_argument("--rank-tier", type=int, default=60,
-                        help="Мінімальний rank tier: 60=Ancient+, 70=Divine+, 80=Immortal+ (default: 60)")
-    parser.add_argument("--region", type=int, default=None,
-                        help="Регіон: 3=Europe, 4=SE Asia і т.д. (default: всі)")
-    parser.add_argument("--patch", type=int, default=None,
-                        help="Номер патчу (default: останній)")
+                        help="Кількість матчів (default: 100)")
+    parser.add_argument("--rank-tier", type=int, default=70,
+                        help="Мінімальний rank tier: 70=Divine+, 75=Titan+, 80=Immortal+ (default: 70)")
     parser.add_argument("--lobby-type", type=int, default=7,
-                        help="Тип лобі: 7=ranked (default: 7)")
+                        help="7=ranked (default: 7)")
+
+    # Часові фільтри
+    parser.add_argument("--days", type=int, default=None,
+                        help="Матчі за останні N днів (default: без обмеження)")
+    parser.add_argument("--before-match", type=int, default=None,
+                        help="Матчі що відбулись до цього match_id (за start_time)")
 
     # Поведінка
     parser.add_argument("--skip-known", dest="skip_known", action="store_true", default=True)
     parser.add_argument("--no-skip-known", dest="skip_known", action="store_false")
-    parser.add_argument("--dry-run", action="store_true",
-                        help="Показати що буде зроблено без реальних запитів")
-    parser.add_argument("--no-ingest", action="store_true",
-                        help="Тільки discovery — не інгестувати")
-    parser.add_argument("--rebuild", action="store_true",
-                        help="Rebuild pre-computed після інгесту")
-    parser.add_argument("--save-csv", type=Path, default=None,
-                        help="Зберегти знайдені match_id в CSV файл")
-    parser.add_argument("--rate-limit", type=float, default=1.5,
-                        help="Секунд між запитами (default: 1.5)")
+    parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--no-ingest", action="store_true")
+    parser.add_argument("--rebuild", action="store_true")
+    parser.add_argument("--save-csv", type=Path, default=None)
+    parser.add_argument("--rate-limit", type=float, default=1.5)
 
     args = parser.parse_args()
 
-    if args.rate_limit < 0:
-        logger.warning("rate-limit < 0 is invalid. Using 0.")
-        args.rate_limit = 0
-        
     init_db()
+
+    # Обчислюємо time фільтри
+    start_time_after: int | None = None
+    start_time_before: int | None = None
+
+    if args.days is not None:
+        start_time_after = int(time.time()) - args.days * 86400
+        logger.info("Time filter: last %d days (after unix=%d)", args.days, start_time_after)
+
+    if args.before_match is not None:
+        logger.info("Fetching start_time for match %d...", args.before_match)
+        ts = _get_match_start_time(args.before_match)
+        if ts:
+            start_time_before = ts
+            logger.info("Will fetch matches before %d (unix=%d)", args.before_match, ts)
+        else:
+            logger.warning("Could not get start_time for match %d — ignoring --before-match", args.before_match)
 
     # Discovery
     match_ids = discover_matches(
         count=args.count,
         rank_tier=args.rank_tier,
-        region=args.region,
-        patch=args.patch,
         lobby_type=args.lobby_type,
+        start_time_after=start_time_after,
+        start_time_before=start_time_before,
     )
 
     if not match_ids:
-        logger.warning("No matches found. Check your filters.")
+        logger.warning("No matches found.")
         sys.exit(0)
 
-    # Опційно зберегти CSV
     if args.save_csv:
         save_to_csv(match_ids, args.save_csv)
 
-    # Якщо --no-ingest — зупиняємось після discovery
     if args.no_ingest:
         logger.info("--no-ingest flag set. Stopping after discovery.")
         sys.exit(0)
 
-    # Ingest
     stats = run_ingest(
         match_ids,
         skip_known=args.skip_known,
@@ -231,7 +288,7 @@ def main() -> None:
     )
 
     logger.info(
-        "Ingest done: ingested=%d skipped=%d failed=%d",
+        "Done: ingested=%d skipped=%d failed=%d",
         stats["ingested"], stats["skipped"], stats["failed"],
     )
 
@@ -240,7 +297,6 @@ def main() -> None:
         for mid, err in stats["errors"]:
             logger.warning("  %d: %s", mid, err)
 
-    # Rebuild
     if args.rebuild and not args.dry_run and stats["ingested"] > 0:
         logger.info("Running rebuild...")
         result = rebuild_all_computed()
