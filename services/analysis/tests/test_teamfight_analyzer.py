@@ -1,5 +1,6 @@
 # services/analysis/tests/test_teamfight_analyzer.py
 import pytest
+
 from services.analysis.app.analyzers.teamfight import TeamfightAnalyzer
 
 

@@ -2,8 +2,6 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
-from typing import Any
 
 from services.analysis.app.clients.ingestion import IngestionClient
 from services.analysis.domains.reports.dtos import DraftScore

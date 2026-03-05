@@ -1,5 +1,6 @@
 # services/analysis/tests/test_watchlist_api.py
 import os
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -10,9 +11,10 @@ def client(tmp_path):
     os.environ["ANALYSIS_DB_PATH"] = db_path
 
     import importlib
+
     import services.analysis.app.config as cfg_mod
-    import services.analysis.db.sqlite as db_mod
     import services.analysis.app.main as main_mod
+    import services.analysis.db.sqlite as db_mod
 
     cfg_mod.config = cfg_mod.AnalysisConfig()
     importlib.reload(db_mod)

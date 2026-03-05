@@ -1,6 +1,6 @@
 # services/analysis/tests/test_health.py
-import tempfile
 import os
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -13,9 +13,10 @@ def client(tmp_path):
 
     # Re-import після зміни env
     import importlib
+
     import services.analysis.app.config as cfg_mod
-    import services.analysis.db.sqlite as db_mod
     import services.analysis.app.main as main_mod
+    import services.analysis.db.sqlite as db_mod
 
     cfg_mod.config = cfg_mod.AnalysisConfig()
     importlib.reload(db_mod)

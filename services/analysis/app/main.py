@@ -6,8 +6,9 @@ from typing import AsyncGenerator
 from fastapi import FastAPI
 
 from services.analysis.app.config import config
-from services.analysis.db.sqlite import init_db, check_db
+from services.analysis.app.routers.reports import router as reports_router
 from services.analysis.app.routers.watchlist import router as watchlist_router
+from services.analysis.db.sqlite import check_db, init_db
 
 logging.basicConfig(
     level=getattr(logging, config.log_level.upper(), logging.INFO),
@@ -32,7 +33,7 @@ app = FastAPI(
 )
 
 app.include_router(watchlist_router)
-
+app.include_router(reports_router)
 
 @app.get("/health", tags=["system"])
 def health() -> dict:

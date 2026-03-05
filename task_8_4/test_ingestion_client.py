@@ -6,8 +6,7 @@
 import pytest
 import responses as resp_mock
 
-from services.analysis.app.clients.ingestion import IngestionClient, IngestionUnavailableError
-
+from services.analysis.app.clients.ingestion import IngestionClient
 
 BASE = "http://localhost:8000"
 

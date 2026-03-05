@@ -1,11 +1,8 @@
 # services/analysis/tests/test_draft_analyzer.py
 from unittest.mock import MagicMock
 
-import pytest
-
 from services.analysis.app.analyzers.draft import DraftAnalyzer
 from services.analysis.app.clients.ingestion import IngestionClient
-
 
 RADIANT = [1, 2, 3, 4, 5]
 DIRE    = [6, 7, 8, 9, 10]

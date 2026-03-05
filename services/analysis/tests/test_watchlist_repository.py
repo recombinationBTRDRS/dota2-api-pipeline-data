@@ -1,8 +1,10 @@
 # services/analysis/tests/test_watchlist_repository.py
-import pytest
-from services.analysis.db.sqlite import init_db
-from services.analysis.db.repositories.watchlist import WatchlistRepository
 import sqlite3
+
+import pytest
+
+from services.analysis.db.repositories.watchlist import WatchlistRepository
+from services.analysis.db.sqlite import init_db
 
 
 @pytest.fixture()

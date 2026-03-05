@@ -1,6 +1,7 @@
 # services/analysis/app/config.py
-from pydantic_settings import BaseSettings
 from pathlib import Path
+
+from pydantic_settings import BaseSettings
 
 
 class AnalysisConfig(BaseSettings):
